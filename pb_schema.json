@@ -1,0 +1,1305 @@
+[
+  {
+    "id": "calendars0000001",
+    "name": "calendars",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "cal_name_000001",
+        "name": "name",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "cal_isdef_00001",
+        "name": "isDefault",
+        "type": "bool",
+        "options": {}
+      },
+      {
+        "id": "cal_workd_00001",
+        "name": "workingDays",
+        "type": "json",
+        "options": {}
+      }
+    ],
+    "indexes": [],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "holidays0000001",
+    "name": "specific_holidays",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "hol_cal_0000001",
+        "name": "calendar",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "calendars0000001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "hol_date_000001",
+        "name": "date",
+        "type": "date",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "hol_reason_0001",
+        "name": "reason",
+        "type": "text",
+        "required": true,
+        "options": {}
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_holidays_calendar_date ON specific_holidays (calendar, date)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "projects0000001",
+    "name": "projects",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "prj_name_000001",
+        "name": "name",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "prj_type_000001",
+        "name": "type",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["waterfall", "agile"]
+        }
+      },
+      {
+        "id": "prj_desc_000001",
+        "name": "description",
+        "type": "text",
+        "options": {}
+      },
+      {
+        "id": "prj_goal_000001",
+        "name": "goal",
+        "type": "text",
+        "options": {}
+      },
+      {
+        "id": "prj_reqs_000001",
+        "name": "requirements",
+        "type": "text",
+        "options": {}
+      },
+      {
+        "id": "prj_cost_000001",
+        "name": "cost",
+        "type": "number",
+        "options": {}
+      },
+      {
+        "id": "prj_pm_00000001",
+        "name": "projectManager",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "prj_start_00001",
+        "name": "startDate",
+        "type": "date",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "prj_end_000001",
+        "name": "endDate",
+        "type": "date",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "prj_stat_000001",
+        "name": "status",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["Planning", "In Progress", "On Hold", "Completed"]
+        }
+      },
+      {
+        "id": "prj_app_000001",
+        "name": "approvalStatus",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["Draft", "Pending Approval", "Approved", "Rejected"]
+        }
+      },
+      {
+        "id": "prj_appcomm_00",
+        "name": "approvalComment",
+        "type": "text",
+        "options": {}
+      },
+      {
+        "id": "prj_subdate_01",
+        "name": "submissionDate",
+        "type": "date",
+        "options": {}
+      },
+      {
+        "id": "prj_cal_0000001",
+        "name": "calendar",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "calendars0000001",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "prj_unit_000001",
+        "name": "owningUnit",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "prj_team_000001",
+        "name": "teamMembers",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": null
+        }
+      },
+      {
+        "id": "prj_sprint_001",
+        "name": "sprintCount",
+        "type": "number",
+        "options": {}
+      },
+      {
+        "id": "prj_weight_01",
+        "name": "weightingType",
+        "type": "select",
+        "options": {
+          "maxSelect": 1,
+          "values": ["manual", "time-based", "cost-based", "complexity-based", "combined"]
+        }
+      },
+      {
+        "id": "prj_pltype_001",
+        "name": "plannedProgressType",
+        "type": "select",
+        "options": {
+          "maxSelect": 1,
+          "values": ["continuous", "zero-hundred"]
+        }
+      },
+      {
+        "id": "prj_tw_0000001",
+        "name": "timeWeightFactor",
+        "type": "number",
+        "options": {}
+      },
+      {
+        "id": "prj_cw_0000001",
+        "name": "costWeightFactor",
+        "type": "number",
+        "options": {}
+      },
+      {
+        "id": "prj_cxw_000001",
+        "name": "complexityWeightFactor",
+        "type": "number",
+        "options": {}
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_projects_status ON projects (status)",
+      "CREATE INDEX idx_projects_owningUnit ON projects (owningUnit)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "risks0000000001",
+    "name": "project_risks",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "rsk_prj_0000001",
+        "name": "project",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "projects0000001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "rsk_desc_000001",
+        "name": "description",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "rsk_prob_000001",
+        "name": "probability",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["Low", "Medium", "High"]
+        }
+      },
+      {
+        "id": "rsk_imp_0000001",
+        "name": "impact",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["Low", "Medium", "High"]
+        }
+      },
+      {
+        "id": "rsk_resp_000001",
+        "name": "responsePlan",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "rsk_assign_001",
+        "name": "assignedTo",
+        "type": "text",
+        "options": {}
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_risks_project ON project_risks (project)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "updates00000001",
+    "name": "project_status_updates",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "upd_prj_0000001",
+        "name": "project",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "projects0000001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "upd_desc_000001",
+        "name": "description",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "upd_date_000001",
+        "name": "date",
+        "type": "date",
+        "required": true,
+        "options": {}
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_updates_project ON project_status_updates (project)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "documents00001",
+    "name": "project_documents",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "doc_prj_0000001",
+        "name": "project",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "projects0000001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "doc_name_000001",
+        "name": "name",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "doc_desc_000001",
+        "name": "description",
+        "type": "text",
+        "options": {}
+      },
+      {
+        "id": "doc_type_000001",
+        "name": "type",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["Letter", "Meeting Minutes", "Report", "Other"]
+        }
+      },
+      {
+        "id": "doc_file_000001",
+        "name": "file",
+        "type": "file",
+        "options": {
+          "maxSelect": 1,
+          "maxSize": 10485760
+        }
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_documents_project ON project_documents (project)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "approvals00001",
+    "name": "project_approval_history",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "app_prj_0000001",
+        "name": "project",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "projects0000001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "app_act_0000001",
+        "name": "action",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["Submitted", "Approved", "Rejected"]
+        }
+      },
+      {
+        "id": "app_date_000001",
+        "name": "date",
+        "type": "date",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "app_actor_0001",
+        "name": "actor",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "app_comm_00001",
+        "name": "comment",
+        "type": "text",
+        "options": {}
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_approvals_project ON project_approval_history (project)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "activities00001",
+    "name": "project_activities",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "act_prj_0000001",
+        "name": "project",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "projects0000001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "act_name_000001",
+        "name": "name",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "act_dur_0000001",
+        "name": "duration",
+        "type": "number",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "act_weight_001",
+        "name": "weight",
+        "type": "number",
+        "options": {}
+      },
+      {
+        "id": "act_actprog_01",
+        "name": "actualProgress",
+        "type": "number",
+        "options": {}
+      },
+      {
+        "id": "act_parent_001",
+        "name": "parent",
+        "type": "relation",
+        "options": {
+          "collectionId": "activities00001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "act_prereq_001",
+        "name": "prerequisite",
+        "type": "relation",
+        "options": {
+          "collectionId": "activities00001",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "act_prtype_001",
+        "name": "prerequisiteType",
+        "type": "select",
+        "options": {
+          "maxSelect": 1,
+          "values": ["FS", "SS", "FF", "SF"]
+        }
+      },
+      {
+        "id": "act_lag_0000001",
+        "name": "lag",
+        "type": "number",
+        "options": {}
+      },
+      {
+        "id": "act_cost_000001",
+        "name": "cost",
+        "type": "number",
+        "options": {}
+      },
+      {
+        "id": "act_manhour_01",
+        "name": "manHour",
+        "type": "number",
+        "options": {}
+      },
+      {
+        "id": "act_imp_0000001",
+        "name": "importance",
+        "type": "select",
+        "options": {
+          "maxSelect": 1,
+          "values": ["Low", "Medium", "High"]
+        }
+      },
+      {
+        "id": "act_comp_00001",
+        "name": "complexity",
+        "type": "select",
+        "options": {
+          "maxSelect": 1,
+          "values": ["Low", "Medium", "High"]
+        }
+      },
+      {
+        "id": "act_assign_001",
+        "name": "assignedTo",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "act_app1_000001",
+        "name": "approver1",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "act_app2_000001",
+        "name": "approver2",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "act_app3_000001",
+        "name": "approver3",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_activities_project ON project_activities (project)",
+      "CREATE INDEX idx_activities_parent ON project_activities (parent)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "kanbantasks001",
+    "name": "kanban_tasks",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "kb_prj_00000001",
+        "name": "project",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "projects0000001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "kb_desc_0000001",
+        "name": "description",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "kb_due_00000001",
+        "name": "dueDate",
+        "type": "date",
+        "options": {}
+      },
+      {
+        "id": "kb_prior_000001",
+        "name": "priority",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["Low", "Medium", "High"]
+        }
+      },
+      {
+        "id": "kb_status_00001",
+        "name": "status",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["To-Do", "Doing", "Done"]
+        }
+      },
+      {
+        "id": "kb_assign_0001",
+        "name": "assignedTo",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "kb_sprint_0001",
+        "name": "sprintNumber",
+        "type": "number",
+        "options": {}
+      },
+      {
+        "id": "kb_app1_000001",
+        "name": "approver1",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "kb_app2_000001",
+        "name": "approver2",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "kb_app3_000001",
+        "name": "approver3",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_kanban_project ON kanban_tasks (project)",
+      "CREATE INDEX idx_kanban_status ON kanban_tasks (status)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "actionitems0001",
+    "name": "action_items",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "act_title_00001",
+        "name": "title",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "act_desc_000001",
+        "name": "description",
+        "type": "text",
+        "options": {}
+      },
+      {
+        "id": "act_resp_000001",
+        "name": "responsibleUser",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "act_app1_000001",
+        "name": "approver1",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "act_app2_000001",
+        "name": "approver2",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "act_app3_000001",
+        "name": "approver3",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "act_stat_000001",
+        "name": "status",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["Planning", "In Progress", "On Hold", "Completed"]
+        }
+      },
+      {
+        "id": "act_cal_0000001",
+        "name": "calendar",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "calendars0000001",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "act_start_00001",
+        "name": "startDate",
+        "type": "date",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "act_end_000001",
+        "name": "endDate",
+        "type": "date",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "act_unit_000001",
+        "name": "owningUnit",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "act_prj_0000001",
+        "name": "project",
+        "type": "relation",
+        "options": {
+          "collectionId": "projects0000001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_actions_project ON action_items (project)",
+      "CREATE INDEX idx_actions_status ON action_items (status)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "progress000001",
+    "name": "progress_updates",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "prg_prj_0000001",
+        "name": "project",
+        "type": "relation",
+        "options": {
+          "collectionId": "projects0000001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "prg_act_0000001",
+        "name": "activity",
+        "type": "relation",
+        "options": {
+          "collectionId": "activities00001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "prg_task_000001",
+        "name": "task",
+        "type": "relation",
+        "options": {
+          "collectionId": "kanbantasks001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "prg_action_0001",
+        "name": "action",
+        "type": "relation",
+        "options": {
+          "collectionId": "actionitems0001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "prg_subby_00001",
+        "name": "submittedBy",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "prg_subp_000001",
+        "name": "submittedProgress",
+        "type": "number",
+        "options": {}
+      },
+      {
+        "id": "prg_subs_000001",
+        "name": "submittedStatus",
+        "type": "text",
+        "options": {}
+      },
+      {
+        "id": "prg_curs_000001",
+        "name": "currentStatus",
+        "type": "text",
+        "options": {}
+      },
+      {
+        "id": "prg_subt_000001",
+        "name": "submittedTask",
+        "type": "json",
+        "options": {}
+      },
+      {
+        "id": "prg_stat_000001",
+        "name": "status",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["Pending Approval", "Approved", "Rejected"]
+        }
+      },
+      {
+        "id": "prg_subd_000001",
+        "name": "submissionDate",
+        "type": "date",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "prg_revcomm_01",
+        "name": "reviewComment",
+        "type": "text",
+        "options": {}
+      },
+      {
+        "id": "prg_revd_000001",
+        "name": "reviewDate",
+        "type": "date",
+        "options": {}
+      },
+      {
+        "id": "prg_subc_000001",
+        "name": "submissionComment",
+        "type": "text",
+        "options": {}
+      },
+      {
+        "id": "prg_file_000001",
+        "name": "document",
+        "type": "file",
+        "options": {
+          "maxSelect": 1,
+          "maxSize": 10485760
+        }
+      },
+      {
+        "id": "prg_curapp_001",
+        "name": "currentApprover",
+        "type": "relation",
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_progress_project ON progress_updates (project)",
+      "CREATE INDEX idx_progress_status ON progress_updates (status)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "delegations0001",
+    "name": "delegations",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "dlg_type_000001",
+        "name": "type",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["waterfall", "agile", "action"]
+        }
+      },
+      {
+        "id": "dlg_act_0000001",
+        "name": "activity",
+        "type": "relation",
+        "options": {
+          "collectionId": "activities00001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "dlg_task_000001",
+        "name": "task",
+        "type": "relation",
+        "options": {
+          "collectionId": "kanbantasks001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "dlg_action_0001",
+        "name": "action",
+        "type": "relation",
+        "options": {
+          "collectionId": "actionitems0001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "dlg_prj_0000001",
+        "name": "project",
+        "type": "relation",
+        "options": {
+          "collectionId": "projects0000001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "dlg_deleg_00001",
+        "name": "delegator",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "dlg_delege_0001",
+        "name": "delegatee",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "_pb_users_auth_",
+          "cascadeDelete": false,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "dlg_date_000001",
+        "name": "delegationDate",
+        "type": "date",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "dlg_isact_00001",
+        "name": "isActive",
+        "type": "bool",
+        "options": {}
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_delegations_delegatee ON delegations (delegatee)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "snapshots00001",
+    "name": "project_schedule_snapshots",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "snp_prj_0000001",
+        "name": "project",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "projects0000001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "snp_name_000001",
+        "name": "name",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "snp_date_000001",
+        "name": "date",
+        "type": "date",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "snp_type_000001",
+        "name": "type",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["Baseline", "Progress Information"]
+        }
+      },
+      {
+        "id": "snp_sched_00001",
+        "name": "schedule",
+        "type": "json",
+        "required": true,
+        "options": {}
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_snapshots_project ON project_schedule_snapshots (project)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "strategies00001",
+    "name": "strategies",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "str_name_000001",
+        "name": "name",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "str_desc_000001",
+        "name": "description",
+        "type": "text",
+        "options": {}
+      },
+      {
+        "id": "str_weight_0001",
+        "name": "weight",
+        "type": "number",
+        "options": {}
+      },
+      {
+        "id": "str_parent_0001",
+        "name": "parent",
+        "type": "relation",
+        "options": {
+          "collectionId": "strategies00001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      }
+    ],
+    "indexes": [],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "alignments00001",
+    "name": "project_strategy_alignments",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "alg_prj_0000001",
+        "name": "project",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "projects0000001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "alg_str_0000001",
+        "name": "strategy",
+        "type": "relation",
+        "required": true,
+        "options": {
+          "collectionId": "strategies00001",
+          "cascadeDelete": true,
+          "maxSelect": 1
+        }
+      },
+      {
+        "id": "alg_level_00001",
+        "name": "level",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["None", "Low", "Medium", "High"]
+        }
+      }
+    ],
+    "indexes": [
+      "CREATE INDEX idx_alignments_composite ON project_strategy_alignments (project, strategy)"
+    ],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  },
+  {
+    "id": "knowledgedocs01",
+    "name": "knowledge_documents",
+    "type": "base",
+    "system": false,
+    "schema": [
+      {
+        "id": "knw_name_000001",
+        "name": "name",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "id": "knw_desc_000001",
+        "name": "description",
+        "type": "text",
+        "options": {}
+      },
+      {
+        "id": "knw_type_000001",
+        "name": "type",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["Book", "Pamphlet", "Software", "Other"]
+        }
+      }
+    ],
+    "indexes": [],
+    "listRule": "",
+    "viewRule": "",
+    "createRule": "",
+    "updateRule": "",
+    "deleteRule": ""
+  }
+]
