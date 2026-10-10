@@ -74,7 +74,7 @@ export const organization = {
   createUnit: (body: { tenantId: string; name: string; code?: string; parentId: string | null }) => api.post<BackendUnit>('/api/organization/units/', body),
   updateUnit: (id: string, body: { name: string; code: string; parentId: string | null; managerUserId: string | null; isActive: boolean }) =>
     api.put<BackendUnit>(`/api/organization/units/${id}`, body),
-  deactivateUnit: (id: string) => api.delete<void>(`/api/organization/units/${id}`),
+  deactivateUnit: (id: string) => api.delete<void>(`/api/organization/units/${id}?includeBranch=true`),
   members: () => api.get<BackendMember[]>('/api/organization/members'),
   setUserUnit: (userId: string, unitId: string | null) => api.put<BackendMember | null>(`/api/organization/users/${userId}/unit`, { unitId })
 };
