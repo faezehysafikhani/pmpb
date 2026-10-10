@@ -1,7 +1,10 @@
 
 
 import React, { useState, useContext, useEffect, useMemo } from 'react';
-import { initialUsers, initialProjects, initialStrategies, initialAlignments, initialKnowledgeDocuments, initialActions, initialDelegations, initialOwningUnitsFlat, initialOwningUnitsTree } from './data';
+import { initialProjects, initialStrategies, initialAlignments, initialKnowledgeDocuments, initialActions, initialDelegations } from './data';
+import { AuthProvider, useAuth } from './directory/AuthContext';
+import { DirectoryProvider, useDirectory } from './directory/DirectoryContext';
+import { toUiUser } from './services/backend/mappers';
 
 import { 
     User, Project, ProjectType, ProjectRisk, ProjectStatusUpdate, ProjectDocument, 
@@ -42,56 +45,13 @@ const AppContent = () => {
     const { t, language } = useContext(LocalizationContext);
 
     // --- STATE MANAGEMENT ---
-    const [users, setUsers] = useState<User[]>(() => {
-        try {
-            const saved = localStorage.getItem('pms_users');
-            if (saved) {
-                const parsed: User[] = JSON.parse(saved);
-                const existingMap = new Map(parsed.map(u => [u.username.toLowerCase(), u]));
-                initialUsers.forEach(iu => {
-                    if (!existingMap.has(iu.username.toLowerCase())) {
-                        existingMap.set(iu.username.toLowerCase(), iu);
-                    }
-                });
-                const updatedList = Array.from(existingMap.values()).map(u => {
-                    const matchedInit = initialUsers.find(iu => iu.username.toLowerCase() === u.username.toLowerCase());
-                    if (u.username.toLowerCase() === 'admin') {
-                        return { ...u, owningUnit: 'سازمان' };
-                    }
-                    if (u.username.toLowerCase() === 'user1') {
-                        return { ...u, owningUnit: 'سازمان > واحد اجرایی' };
-                    }
-                    if (matchedInit && (!u.owningUnit || !u.owningUnit.includes('سازمان'))) {
-                        return { ...u, owningUnit: matchedInit.owningUnit };
-                    }
-                    if (!u.owningUnit) {
-                        return { ...u, owningUnit: 'سازمان' };
-                    }
-                    return u;
-                });
-
-                // Ensure all users have distinct unique numeric IDs
-                const usedIds = new Set<string>();
-                let maxId = 100;
-                updatedList.forEach(u => { if (typeof u.id === 'number' && u.id > maxId) maxId = u.id; });
-                
-                const uniqueList = updatedList.map(u => {
-                    if (usedIds.has(u.id)) {
-                        maxId += 1;
-                        return { ...u, id: maxId };
-                    }
-                    usedIds.add(u.id);
-                    return u;
-                });
-                return uniqueList;
-            }
-            return initialUsers;
-        } catch (e) {
-            console.error("Failed to parse users from localStorage", e);
-            localStorage.removeItem('pms_users');
-            return initialUsers;
-        }
-    });
+    // People, work calendars and the organisation chart belong to the backend: this screen only reads them and asks for changes.
+    const auth = useAuth();
+    const directory = useDirectory();
+    const users = directory.users;
+    const calendars = directory.calendars;
+    const owningUnits = directory.unitPaths;
+    const unitNodes = directory.unitNodes;
 
     const [projects, setProjects] = useState<Project[]>(() => {
         const defaultWorkflows = { charter: true, schedule: true, team: true, risks: true, status: true, delays: true, docs: true, actions: true };
@@ -141,28 +101,6 @@ const AppContent = () => {
         }
     });
 
-    const [calendars, setCalendars] = useState<Calendar[]>(() => {
-        const defaultCalendar: Calendar = { id: '1', name: 'Default', isDefault: true, workingDays: [6, 0, 1, 2, 3], specificHolidays: [] };
-        try {
-            const saved = localStorage.getItem('pms_calendars');
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    // Ensure default calendar exists
-                    if (!parsed.some((c: Calendar) => c.isDefault)) {
-                        parsed.push(defaultCalendar);
-                    }
-                    return parsed;
-                }
-            }
-            return [defaultCalendar];
-        } catch (e) {
-            console.error("Failed to parse calendars from localStorage", e);
-            localStorage.removeItem('pms_calendars');
-            return [defaultCalendar];
-        }
-    });
-
     const [strategies, setStrategies] = useState<Strategy[]>(() => {
         try {
             const saved = localStorage.getItem('pms_strategies');
@@ -207,30 +145,6 @@ const AppContent = () => {
         }
     });
     
-    const [owningUnits, setOwningUnits] = useState<string[]>(() => {
-        try {
-            const saved = localStorage.getItem('pms_owning_units');
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-            }
-            return initialOwningUnitsFlat;
-        } catch (e) {
-            return initialOwningUnitsFlat;
-        }
-    });
-
-    useEffect(() => {
-        try {
-            const savedTree = localStorage.getItem('pms_owning_units_tree');
-            if (!savedTree || !savedTree.includes('سازمان')) {
-                localStorage.setItem('pms_owning_units_tree', JSON.stringify(initialOwningUnitsTree));
-                localStorage.setItem('pms_owning_units', JSON.stringify(initialOwningUnitsFlat));
-                setOwningUnits(initialOwningUnitsFlat);
-            }
-        } catch (e) {}
-    }, []);
-
     const [projectStatuses, setProjectStatuses] = useState<string[]>(() => {
         try {
             const saved = localStorage.getItem('pms_project_statuses');
@@ -303,39 +217,32 @@ const AppContent = () => {
         } catch (e) {}
     }, [dynamicWorkflowSettings]);
 
-    const [defaultProjectApproverId, setDefaultProjectApproverId] = useState<number | null>(() => {
+    const [defaultProjectApproverId, setDefaultProjectApproverId] = useState<string | null>(() => {
         try {
             const saved = localStorage.getItem('pms_default_project_approver_id');
-            if (saved) return parseInt(saved, 10);
+            if (saved) return saved;
         } catch (e) {}
-        const adminUser = users.find(u => u.role === 'Admin');
-        return adminUser ? adminUser.id : 1;
+        return null;
     });
 
-    const [currentUser, setCurrentUser] = useState<User | null>(() => {
-        try {
-            const saved = sessionStorage.getItem('pms_current_user');
-            return saved ? JSON.parse(saved) : null;
-        } catch(e) {
-            return null;
-        }
-    });
-    const [page, setPage] = useState(currentUser ? 'dashboard' : 'login');
+    // The signed-in person as the directory shows them (with their unit), until the directory has loaded: just what the session says.
+    const currentUser: User | null = useMemo(
+        () => auth.session ? (users.find(u => u.id === auth.session!.user.id) ?? toUiUser(auth.session.user, new Map())) : null,
+        [auth.session, users]
+    );
+    const [page, setPage] = useState('dashboard');
     const [pageContext, setPageContext] = useState<any>(null);
     const [loginError, setLoginError] = useState<string | null>(null);
     const [infoModal, setInfoModal] = useState<{title: string, message: string} | null>(null);
     const [approvalCommentModalState, setApprovalCommentModalState] = useState<{ type: 'project' | 'progress', id: number, status: 'Approved' | 'Rejected', initialComment?: string } | null>(null);
 
     // --- DATA PERSISTENCE ---
-    useEffect(() => { localStorage.setItem('pms_users', JSON.stringify(users)); }, [users]);
     useEffect(() => { localStorage.setItem('pms_projects', JSON.stringify(projects)); }, [projects]);
     useEffect(() => { localStorage.setItem('pms_actions', JSON.stringify(actions)); }, [actions]);
-    useEffect(() => { localStorage.setItem('pms_calendars', JSON.stringify(calendars)); }, [calendars]);
     useEffect(() => { localStorage.setItem('pms_strategies', JSON.stringify(strategies)); }, [strategies]);
     useEffect(() => { localStorage.setItem('pms_alignments', JSON.stringify(alignments)); }, [alignments]);
     useEffect(() => { localStorage.setItem('pms_progress_updates', JSON.stringify(progressUpdates)); }, [progressUpdates]);
     useEffect(() => { localStorage.setItem('pms_knowledge_docs', JSON.stringify(knowledgeDocuments)); }, [knowledgeDocuments]);
-    useEffect(() => { localStorage.setItem('pms_owning_units', JSON.stringify(owningUnits)); }, [owningUnits]);
     useEffect(() => { localStorage.setItem('pms_project_statuses', JSON.stringify(projectStatuses)); }, [projectStatuses]);
     useEffect(() => { localStorage.setItem('pms_delegations', JSON.stringify(delegations)); }, [delegations]);
     useEffect(() => { localStorage.setItem('pms_visibility_settings', JSON.stringify(visibilitySettings)); }, [visibilitySettings]);
@@ -346,13 +253,6 @@ const AppContent = () => {
         }
     }, [defaultProjectApproverId]);
     
-    useEffect(() => {
-        if(currentUser) {
-             sessionStorage.setItem('pms_current_user', JSON.stringify(currentUser));
-        } else {
-             sessionStorage.removeItem('pms_current_user');
-        }
-    }, [currentUser]);
 
 
     // --- NOTIFICATION COUNTS ---
@@ -360,7 +260,8 @@ const AppContent = () => {
         const activityMap = new Map<string, ProjectActivity>();
         projects.forEach(p => {
             if (p.schedule && p.schedule.length > 0) {
-                const projectCalendar = calendars.find(c => c.id === p.calendarId) || calendars.find(c => c.isDefault)!;
+                const projectCalendar = calendars.find(c => c.id === p.calendarId) || calendars.find(c => c.isDefault);
+                if (!projectCalendar) return; // the calendars have not been loaded yet
                 const { rootNode } = calculateScheduleTreeAndProgress(p, projectCalendar);
 
                 const flattenActivities = (node: ProjectActivity) => {
@@ -561,15 +462,6 @@ const AppContent = () => {
         return notifiedTaskIds.size;
     }, [projects, actions, currentUser, progressUpdates, allProcessedActivities]);
 
-    const unitNodes = useMemo(() => {
-        try {
-            const saved = localStorage.getItem('pms_owning_units_tree');
-            return saved ? JSON.parse(saved) : [];
-        } catch (e) {
-            return [];
-        }
-    }, []);
-
     const visibleProjectsForCurrentUser = useMemo(() => {
         if (!currentUser) return [];
         return projects.filter(p => isProjectVisibleToUser(p, currentUser, visibilitySettings, users, unitNodes));
@@ -588,23 +480,18 @@ const AppContent = () => {
     };
 
     // --- AUTHENTICATION ---
-    const handleLogin = (username: string, password: string): void => {
-        const user = users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.password === password);
-        if (user) {
-            if (user.isActive) {
-                setCurrentUser(user);
-                setLoginError(null);
-                setPage('dashboard');
-            } else {
-                setLoginError(t('loginErrorInactive'));
-            }
+    const handleLogin = async (username: string, password: string, captchaAnswer?: string): Promise<void> => {
+        const outcome = await auth.signIn(username, password, captchaAnswer);
+        if (outcome.ok) {
+            setLoginError(null);
+            setPage('dashboard');
         } else {
-            setLoginError(t('loginErrorInvalid'));
+            setLoginError(outcome.message ?? t('loginErrorInvalid'));
         }
     };
 
     const handleLogout = (): void => {
-        setCurrentUser(null);
+        void auth.signOut();
         setPage('login');
     };
 
@@ -1132,26 +1019,9 @@ const AppContent = () => {
     };
 
     // --- CALENDAR & ADVANCED HANDLERS ---
-    const handleSaveCalendar = (calendar: Calendar) => {
-        setCalendars(prev => {
-            const existing = prev.find(c => c.id === calendar.id);
-            let newCalendars;
-            if (existing) {
-                newCalendars = prev.map(c => c.id === calendar.id ? calendar : c);
-            } else {
-                newCalendars = [...prev, { ...calendar, id: Date.now() }];
-            }
-            // Ensure only one default
-            if (calendar.isDefault) {
-                return newCalendars.map(c => c.id === calendar.id ? c : { ...c, isDefault: false });
-            }
-            return newCalendars;
-        });
-    };
-    
-    const handleDeleteCalendar = (id: string) => {
-        setCalendars(prev => prev.filter(c => c.id !== id));
-    };
+    const handleSaveCalendar = (calendar: Calendar) => directory.saveCalendar(calendar);
+
+    const handleDeleteCalendar = (id: string) => directory.deleteCalendar(id);
     
     const handleSaveStrategies = (strategiesToSave: Strategy[]) => {
         setStrategies(strategiesToSave);
@@ -1263,8 +1133,11 @@ const AppContent = () => {
 
     // --- RENDER LOGIC ---
     const renderPage = () => {
+        if (auth.restoring) {
+            return <div className="content-container" style={{ textAlign: 'center', padding: '3rem' }}>...</div>;
+        }
         if (!currentUser) {
-            return <LoginPage onLogin={handleLogin} error={loginError} />;
+            return <LoginPage onLogin={handleLogin} error={loginError} captcha={auth.captcha} onRefreshCaptcha={() => void auth.refreshCaptcha()} />;
         }
         switch (page) {
             case 'main':
@@ -1276,7 +1149,7 @@ const AppContent = () => {
                             taskCenterNotificationCount={taskCenterNotificationCount}
                         />;
             case 'users':
-                return <UserManagementPage users={users} setUsers={setUsers} onNavigate={handleNavigate} owningUnits={owningUnits} />;
+                return <UserManagementPage users={users} onNavigate={handleNavigate} owningUnits={owningUnits} onCreate={directory.createUser} onUpdate={directory.updateUser} onSetActive={directory.setUserActive} onDelete={directory.deleteUser} />;
             case 'settings':
                 return (
                     <SettingsPage 
@@ -1371,7 +1244,7 @@ const AppContent = () => {
                             dynamicWorkflowSettings={dynamicWorkflowSettings}
                         />;
             case 'calendar_management':
-                return <CalendarManagementPage calendars={calendars} projects={projects} onNavigate={handleNavigate} onDelete={handleDeleteCalendar} />;
+                return <CalendarManagementPage calendars={calendars} onNavigate={handleNavigate} onDelete={handleDeleteCalendar} />;
             case 'edit_calendar':
                 return <EditCalendarPage onNavigate={handleNavigate} onSave={handleSaveCalendar} existingCalendar={pageContext?.calendar} />;
             case 'strategy_management':
@@ -1383,7 +1256,7 @@ const AppContent = () => {
             case 'color_format':
                 return <ColorFormatPage onNavigate={handleNavigate} />;
             case 'reference_tables':
-                return <ReferenceTablesPage owningUnits={owningUnits} setOwningUnits={setOwningUnits} projectStatuses={projectStatuses} setProjectStatuses={setProjectStatuses} onNavigate={handleNavigate} />;
+                return <ReferenceTablesPage projectStatuses={projectStatuses} setProjectStatuses={setProjectStatuses} onNavigate={handleNavigate} />;
             case 'dashboard_hub':
             case 'dashboard':
             case 'action_dashboard':
@@ -1468,7 +1341,11 @@ export const App = () => {
     return (
         <LocalizationProvider>
             <ThemeProvider>
-                <AppContent />
+                <AuthProvider>
+                    <DirectoryProvider>
+                        <AppContent />
+                    </DirectoryProvider>
+                </AuthProvider>
             </ThemeProvider>
         </LocalizationProvider>
     );

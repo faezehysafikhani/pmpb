@@ -5,32 +5,27 @@ import { LocalizationContext, ThemeContext, ColorScheme } from '../context';
 import { 
     Project, Calendar, Strategy, AlignmentLevel, ProjectStrategyAlignment, TranslationKey, SpecificHoliday, KnowledgeDocument, KnowledgeDocumentType, WorkStatus, OwningUnitTreeNode
 } from '../types';
-import { initialOwningUnitsTree } from '../data';
-import { getISODateString, formatDate, getJalaliInfo, toGregorian, toPersianDigits, getCalendarDisplayName, getOfficialHolidayReason } from '../utils';
+import { getISODateString, formatDate, getJalaliInfo, toGregorian, toPersianDigits, getCalendarDisplayName } from '../utils';
+import { useDirectory } from '../directory/DirectoryContext';
+import type { Outcome } from '../directory/DirectoryContext';
+import { calendars as calendarsApi } from '../services/backend/directory';
 import { HolidayReasonModal, SpecificHolidaysListModal } from '../components/Modals';
 import { ProgressBar } from '../components/Indicators';
 
 // --- CalendarManagementPage & EditCalendarPage ---
-export const CalendarManagementPage = ({ calendars, projects, onNavigate, onDelete }: {
+export const CalendarManagementPage = ({ calendars, onNavigate, onDelete }: {
     calendars: Calendar[],
-    projects: Project[],
     onNavigate: (page: string, context?: any) => void,
-    onDelete: (id: string) => void
+    /** Deletes through the backend, which refuses the default calendar and any calendar still in use. */
+    onDelete: (id: string) => Promise<Outcome>
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const backIcon = language === 'fa' ? 'arrow_forward' : 'arrow_back';
 
-    const handleDelete = (calendar: Calendar) => {
-        if (calendar.isDefault) {
-            alert(t('cannotDeleteDefaultCalendar'));
-            return;
-        }
-        if (projects.some(p => p.calendarId === calendar.id)) {
-            alert(t('cannotDeleteAssignedCalendar'));
-            return;
-        }
+    const handleDelete = async (calendar: Calendar) => {
         if (window.confirm(t('confirmCalendarDelete'))) {
-            onDelete(calendar.id);
+            const outcome = await onDelete(calendar.id);
+            if (!outcome.ok) alert(outcome.message ?? t('error'));
         }
     };
     
@@ -59,9 +54,7 @@ export const CalendarManagementPage = ({ calendars, projects, onNavigate, onDele
                               React.createElement("td", null, getCalendarDisplayName(cal.name, language)),
                               React.createElement("td", { className: "action-cell no-print" },
                                   React.createElement("button", { onClick: () => onNavigate('edit_calendar', { calendar: cal }), className: "action-icon edit", "aria-label": t('edit') } as React.HTMLAttributes<HTMLButtonElement>, React.createElement("span", { className: "material-symbols-outlined" }, "edit")),
-                                  !cal.isDefault && (
-                                      React.createElement("button", { onClick: () => handleDelete(cal), className: "action-icon delete", "aria-label": t('delete') } as React.HTMLAttributes<HTMLButtonElement>, React.createElement("span", { className: "material-symbols-outlined" }, "delete"))
-                                  )
+                                  React.createElement("button", { onClick: () => handleDelete(cal), className: "action-icon delete", "aria-label": t('delete') } as React.HTMLAttributes<HTMLButtonElement>, React.createElement("span", { className: "material-symbols-outlined" }, "delete"))
                               )
                           )
                       ))
@@ -74,12 +67,12 @@ export const CalendarManagementPage = ({ calendars, projects, onNavigate, onDele
 
 export const EditCalendarPage = ({ onNavigate, onSave, existingCalendar }: { 
     onNavigate: (page: string, context?: any) => void,
-    onSave: (calendar: Calendar) => void,
+    onSave: (calendar: Calendar) => Promise<Outcome>,
     existingCalendar?: Calendar | null 
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const [calendar, setCalendar] = useState<Calendar>(
-        existingCalendar || { id: 0, name: '', workingDays: [6, 0, 1, 2, 3], specificHolidays: [], applyOfficialHolidays: true }
+        existingCalendar || { id: '', name: '', workingDays: [6, 0, 1, 2, 3], specificHolidays: [], applyOfficialHolidays: true }
     );
     const [currentDate, setCurrentDate] = useState(new Date());
     const [isReasonModalOpen, setIsReasonModalOpen] = useState(false);
@@ -101,12 +94,34 @@ export const EditCalendarPage = ({ onNavigate, onSave, existingCalendar }: {
             : [t('January'), t('February'), t('March'), t('April'), t('May'), t('June'), t('July'), t('August'), t('September'), t('October'), t('November'), t('December')]
     ), [t, isShamsi]);
     
-    const handleSave = () => {
+    const [saving, setSaving] = useState(false);
+    // Official holidays of the month on screen, as the backend knows them.
+    const [officialHolidays, setOfficialHolidays] = useState<Map<string, string>>(new Map());
+
+    useEffect(() => {
+        let cancelled = false;
+        const from = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        from.setDate(from.getDate() - 40);
+        const to = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        to.setDate(to.getDate() + 75);
+        calendarsApi.officialHolidays(getISODateString(from), getISODateString(to)).then(result => {
+            if (!cancelled && result.ok) setOfficialHolidays(new Map((result.value ?? []).map(h => [h.date, h.reason])));
+        });
+        return () => { cancelled = true; };
+    }, [currentDate]);
+
+    const handleSave = async () => {
         if(!calendar.name.trim()){
             alert(t('fillRequiredFields'));
             return;
         }
-        onSave(calendar);
+        setSaving(true);
+        const outcome = await onSave(calendar);
+        setSaving(false);
+        if (!outcome.ok) {
+            alert(outcome.message ?? t('error'));
+            return;
+        }
         onNavigate('calendar_management');
     }
     
@@ -203,7 +218,7 @@ export const EditCalendarPage = ({ onNavigate, onSave, existingCalendar }: {
             const dateString = getISODateString(date);
             const isWeeklyHoliday = !calendar.workingDays.includes(date.getDay());
             const specificHoliday = calendar.specificHolidays.find(h => h.date === dateString);
-            const officialHolidayReason = calendar.applyOfficialHolidays !== false ? getOfficialHolidayReason(date) : null;
+            const officialHolidayReason = calendar.applyOfficialHolidays !== false ? (officialHolidays.get(dateString) ?? null) : null;
             const isHoliday = isWeeklyHoliday || !!specificHoliday || !!officialHolidayReason;
 
             const classes = [
@@ -298,7 +313,7 @@ export const EditCalendarPage = ({ onNavigate, onSave, existingCalendar }: {
                     ),
                     React.createElement("div", { className: "calendar-sidebar-actions" },
                         React.createElement("button", { onClick: () => setIsHolidaysListModalOpen(true), className: "action-button" } as React.HTMLAttributes<HTMLButtonElement>, t('holidays')),
-                        React.createElement("button", { onClick: handleSave, className: "save-btn" } as React.HTMLAttributes<HTMLButtonElement>, t('save'))
+                        React.createElement("button", { onClick: handleSave, className: "save-btn", disabled: saving } as React.HTMLAttributes<HTMLButtonElement>, t('save'))
                     )
                 ),
                 React.createElement("div", { className: "calendar-main" },
@@ -330,14 +345,10 @@ interface FlatWbsUnitNode {
 }
 
 export const ReferenceTablesPage = ({
-    owningUnits,
-    setOwningUnits,
     projectStatuses,
     setProjectStatuses,
     onNavigate
 }: {
-    owningUnits: string[];
-    setOwningUnits: React.Dispatch<React.SetStateAction<string[]>>;
     projectStatuses: string[];
     setProjectStatuses: React.Dispatch<React.SetStateAction<string[]>>;
     onNavigate: (page: string) => void;
@@ -347,20 +358,8 @@ export const ReferenceTablesPage = ({
     const isDark = theme === 'dark';
     const backIcon = language === 'fa' ? 'arrow_forward' : 'arrow_back';
 
-    // Unit WBS Tree State
-    const [unitNodes, setUnitNodes] = useState<OwningUnitTreeNode[]>(() => {
-        try {
-            const saved = localStorage.getItem('pms_owning_units_tree');
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                if (Array.isArray(parsed) && parsed.length > 0 && parsed.some((n: any) => n.name === 'سازمان')) {
-                    return parsed;
-                }
-            }
-        } catch (e) {}
-
-        return initialOwningUnitsTree;
-    });
+    // The organisation chart lives in the backend: every change below is sent there and the tree is read back.
+    const { unitNodes, createUnit, renameUnit, deleteUnit } = useDirectory();
 
     // State for new root unit input
     const [newRootUnitName, setNewRootUnitName] = useState('');
@@ -434,78 +433,40 @@ export const ReferenceTablesPage = ({
         return flatList;
     }, [unitNodes]);
 
-    // Sync unitNodes with localStorage and setOwningUnits
-    useEffect(() => {
-        try {
-            localStorage.setItem('pms_owning_units_tree', JSON.stringify(unitNodes));
-        } catch (e) {}
-
-        const updatedList: string[] = [];
-        flatWbsUnits.forEach(item => {
-            if (item.fullPath && !updatedList.includes(item.fullPath)) updatedList.push(item.fullPath);
-            const shortName = item.level > 1 && item.parentName ? `${item.parentName} > ${item.name}` : item.name;
-            if (!updatedList.includes(shortName)) updatedList.push(shortName);
-            if (!updatedList.includes(item.name)) updatedList.push(item.name);
-        });
-
-        if (updatedList.length > 0) {
-            setOwningUnits(updatedList);
-        }
-    }, [unitNodes, flatWbsUnits, setOwningUnits]);
-
     // Handlers for Unit Tree
-    const handleAddRootUnit = (e: React.FormEvent) => {
+    const report = (outcome: Outcome) => {
+        if (!outcome.ok) alert(outcome.message ?? 'عملیات انجام نشد.');
+        return outcome.ok;
+    };
+
+    const handleAddRootUnit = async (e: React.FormEvent) => {
         e.preventDefault();
         const name = newRootUnitName.trim();
         if (!name) return;
-        
-        const newNode: OwningUnitTreeNode = {
-            id: `unit-${Date.now()}`,
-            name,
-            parentId: null
-        };
-        setUnitNodes(prev => [...prev, newNode]);
-        setNewRootUnitName('');
+        if (report(await createUnit(name, null))) setNewRootUnitName('');
     };
 
-    const handleSaveChildUnit = (parentId: string) => {
+    const handleSaveChildUnit = async (parentId: string) => {
         const name = newChildName.trim();
         if (!name) return;
-
-        const newNode: OwningUnitTreeNode = {
-            id: `unit-${Date.now()}`,
-            name,
-            parentId
-        };
-        setUnitNodes(prev => [...prev, newNode]);
-        setAddingChildToId(null);
-        setNewChildName('');
+        if (report(await createUnit(name, parentId))) {
+            setAddingChildToId(null);
+            setNewChildName('');
+        }
     };
 
-    const handleSaveEditUnit = (id: string) => {
+    const handleSaveEditUnit = async (id: string) => {
         const name = editingUnitName.trim();
         if (!name) return;
-
-        setUnitNodes(prev => prev.map(n => n.id === id ? { ...n, name } : n));
-        setEditingUnitId(null);
-        setEditingUnitName('');
+        if (report(await renameUnit(id, name))) {
+            setEditingUnitId(null);
+            setEditingUnitName('');
+        }
     };
 
-    const handleDeleteUnitNode = (id: string, name: string) => {
+    const handleDeleteUnitNode = async (id: string, name: string) => {
         if (window.confirm(`آیا از حذف واحد/زیرگروه «${name}» و تمامی زیرگروه‌های آن اطمینان دارید؟`)) {
-            const idsToDelete = new Set<string>([id]);
-            let addedMore = true;
-            while (addedMore) {
-                addedMore = false;
-                unitNodes.forEach(node => {
-                    if (node.parentId && idsToDelete.has(node.parentId) && !idsToDelete.has(node.id)) {
-                        idsToDelete.add(node.id);
-                        addedMore = true;
-                    }
-                });
-            }
-
-            setUnitNodes(prev => prev.filter(n => !idsToDelete.has(n.id)));
+            report(await deleteUnit(id));
         }
     };
 

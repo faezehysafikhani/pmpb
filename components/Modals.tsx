@@ -14,6 +14,7 @@ import { getISODateString, formatDate, formatDateTime, toJalali, toPersianDigits
 import { ProgressBar, PerformanceIndicator, StackedProgressBar } from './Indicators';
 import { ShamsiDatePicker } from './ShamsiDatePicker';
 import { OwningUnitTreeSelect, ActionForm } from './Forms';
+import type { EditUserForm, Outcome } from '../directory/DirectoryContext';
 
 const renderInPortal = (element: ReactElement): ReactElement => {
     if (typeof document === 'undefined') return element;
@@ -1160,42 +1161,22 @@ export const UserEditModal = ({ user, isOpen, onClose, onSave, owningUnits = [] 
   user: User | null;
   isOpen: boolean;
   onClose: () => void;
-  onSave: (user: User) => void;
+  /** Saves through the backend; resolves with its answer so a refusal can be shown here. */
+  onSave: (form: EditUserForm) => Promise<Outcome>;
   owningUnits?: string[];
 }): ReactElement | null => {
   const { t, language } = useContext(LocalizationContext);
-  const [formData, setFormData] = useState<Partial<User>>({});
+  const [formData, setFormData] = useState<Partial<User> & { password?: string }>({});
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const availableUnits = useMemo(() => {
-    if (owningUnits && owningUnits.length > 0) return owningUnits;
-    try {
-      const saved = localStorage.getItem('pms_owning_units');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {}
-    return [
-      'واحد اجرایی',
-      'واحد اجرایی > اداره ۱',
-      'واحد اجرایی > اداره ۲',
-      'واحد انفورماتیک',
-      'واحد انفورماتیک > اداره نرم‌افزار',
-      'واحد انفورماتیک > اداره زیرساخت و شبکه',
-      'واحد ساختمان',
-      'واحد ساختمان > اداره معماری و عمران',
-      'واحد ساختمان > اداره تاسیسات',
-      'واحد پشتیبانی',
-      'واحد پشتیبانی > اداره تدارکات',
-      'واحد پشتیبانی > اداره امور عمومی'
-    ];
-  }, [owningUnits]);
+  const availableUnits = owningUnits;
 
   useEffect(() => {
     if (user) {
-      // Don't pre-fill password field for security
-      const { password, ...userData } = user;
-      setFormData(userData);
+      // The password is never pre-filled; it is only sent when something is typed.
+      setFormData({ ...user, password: '' });
+      setError(null);
     }
   }, [user]);
 
@@ -1206,17 +1187,26 @@ export const UserEditModal = ({ user, isOpen, onClose, onSave, owningUnits = [] 
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!formData.owningUnit) {
-      alert(language === 'fa' ? 'انتخاب واحد سازمانی (ساختار شکست سازمانی) اجباری است.' : 'Selecting an Organizational Unit is required.');
+      setError(language === 'fa' ? 'انتخاب واحد سازمانی (ساختار شکست سازمانی) اجباری است.' : 'Selecting an Organizational Unit is required.');
       return;
     }
-    const dataToSave: User = { ...user, ...formData };
-    if (!formData.password) {
-      delete dataToSave.password;
-    }
-    onSave(dataToSave);
+    setBusy(true);
+    const outcome = await onSave({
+      username: formData.username || '',
+      firstName: formData.firstName || '',
+      lastName: formData.lastName || '',
+      phoneNumber: formData.phoneNumber || '',
+      email: formData.email,
+      password: formData.password || undefined,
+      role: (formData.role || user.role) as UserRole,
+      unitPath: formData.owningUnit,
+      isActive: user.isActive
+    });
+    setBusy(false);
+    if (!outcome.ok) setError(outcome.message ?? 'ذخیره انجام نشد.');
   };
   
   const roleTranslations: Record<UserRole, TranslationKey> = {
@@ -1234,9 +1224,22 @@ export const UserEditModal = ({ user, isOpen, onClose, onSave, owningUnits = [] 
         ),
         React.createElement("div", { className: "modal-body", style: { overflow: 'visible' } },
           React.createElement("form", { onSubmit: handleSubmit, className: "user-edit-form" },
+            error && React.createElement("div", { className: "login-error-banner", role: "alert" }, React.createElement("span", null, error)),
             React.createElement("div", { className: "form-group" },
-              React.createElement("label", { htmlFor: "edit-username" }, t('username') + '*'),
-              React.createElement("input", { type: "text", id: "edit-username", name: "username", value: formData.username || '', onChange: handleChange, required: true })
+              React.createElement("label", { htmlFor: "edit-username" }, (language === 'fa' ? 'نام کاربری (کد ملی)' : 'Username (national code)') + '*'),
+              React.createElement("input", { type: "text", id: "edit-username", name: "username", inputMode: "numeric", value: formData.username || '', onChange: handleChange, required: true })
+            ),
+            React.createElement("div", { className: "form-group" },
+              React.createElement("label", { htmlFor: "edit-firstname" }, (language === 'fa' ? 'نام' : 'First name') + '*'),
+              React.createElement("input", { type: "text", id: "edit-firstname", name: "firstName", value: formData.firstName || '', onChange: handleChange, required: true })
+            ),
+            React.createElement("div", { className: "form-group" },
+              React.createElement("label", { htmlFor: "edit-lastname" }, (language === 'fa' ? 'نام خانوادگی' : 'Last name') + '*'),
+              React.createElement("input", { type: "text", id: "edit-lastname", name: "lastName", value: formData.lastName || '', onChange: handleChange, required: true })
+            ),
+            React.createElement("div", { className: "form-group" },
+              React.createElement("label", { htmlFor: "edit-phone" }, (language === 'fa' ? 'شماره موبایل' : 'Mobile number') + '*'),
+              React.createElement("input", { type: "tel", id: "edit-phone", name: "phoneNumber", inputMode: "tel", value: formData.phoneNumber || '', onChange: handleChange, required: true })
             ),
             React.createElement("div", { className: "form-group" },
               React.createElement("label", { htmlFor: "edit-password" }, t('password')),

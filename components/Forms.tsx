@@ -5,7 +5,7 @@ import { LocalizationContext, ThemeContext } from '../context';
 import { User, Project, Calendar, TranslationKey, WorkStatus, ActionItem, ActionRecurrence, RecurrenceFrequency } from '../types';
 import { ShamsiDatePicker } from './ShamsiDatePicker';
 import { getCalendarDisplayName, toPersianDigits, getRecurrenceSummary, PERSIAN_WEEKDAY_NAMES, PERSIAN_MONTH_NAMES } from '../utils';
-import { initialOwningUnitsTree } from '../data';
+import { useDirectory } from '../directory/DirectoryContext';
 
 interface OwningUnitTreeNode {
     id: string;
@@ -45,18 +45,20 @@ export const OwningUnitTreeSelect = ({
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    // Parse units into tree nodes
-    const treeNodes = useMemo<OwningUnitTreeNode[]>(() => {
-        try {
-            const saved = localStorage.getItem('pms_owning_units_tree');
-            if (saved) {
-                const parsed: OwningUnitTreeNode[] = JSON.parse(saved);
-                if (parsed && parsed.length > 0 && parsed.some(n => n.name === 'سازمان')) return parsed;
-            }
-        } catch (e) {}
+    // The organisation chart as the backend holds it; a unit's value is its full path from the top ("Organization > Engineering > Civil").
+    const { unitNodes: treeNodes } = useDirectory();
 
-        return initialOwningUnitsTree;
-    }, [owningUnits]);
+    const pathOf = useCallback((node: OwningUnitTreeNode): string => {
+        const names = [node.name];
+        const seen = new Set([node.id]);
+        let parent = treeNodes.find(n => n.id === node.parentId);
+        while (parent && !seen.has(parent.id)) {
+            names.unshift(parent.name);
+            seen.add(parent.id);
+            parent = treeNodes.find(n => n.id === parent!.parentId);
+        }
+        return names.join(' > ');
+    }, [treeNodes]);
 
     const rootNodes = useMemo(() => treeNodes.filter(n => !n.parentId), [treeNodes]);
 
@@ -70,22 +72,20 @@ export const OwningUnitTreeSelect = ({
         setExpandedIds(prev => ({ ...prev, [nodeId]: !prev[nodeId] }));
     };
 
-    const handleSelectNode = (nodeName: string, parentName?: string) => {
-        const fullVal = parentName ? `${parentName} > ${nodeName}` : nodeName;
-        onChange(fullVal);
+    const handleSelectNode = (node: OwningUnitTreeNode) => {
+        onChange(pathOf(node));
         setIsOpen(false);
     };
 
-    const renderNode = (node: OwningUnitTreeNode, level = 0, parentName?: string) => {
+    const renderNode = (node: OwningUnitTreeNode, level = 0) => {
         const children = getChildren(node.id);
         const hasChildren = children.length > 0;
         const isExpanded = !!expandedIds[node.id];
-        const fullVal = parentName ? `${parentName} > ${node.name}` : node.name;
-        const isSelected = value === fullVal || value === node.name;
+        const isSelected = value === pathOf(node);
 
         return React.createElement("div", { key: node.id, style: { display: 'flex', flexDirection: 'column' } },
             React.createElement("div", {
-                onClick: () => !disabled && handleSelectNode(node.name, parentName),
+                onClick: () => !disabled && handleSelectNode(node),
                 style: {
                     display: 'flex',
                     alignItems: 'center',
@@ -160,7 +160,7 @@ export const OwningUnitTreeSelect = ({
                     marginRight: `${level * 18 + 18}px`,
                     marginTop: '0.15rem'
                 }
-            }, children.map(child => renderNode(child, level + 1, fullVal)))
+            }, children.map(child => renderNode(child, level + 1)))
         );
     };
 

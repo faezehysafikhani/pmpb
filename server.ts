@@ -1505,6 +1505,31 @@ ${JSON.stringify(dbSummary.users || [], null, 2)}
     }
   });
 
+  // Everything under /api that is not an AI route belongs to the .NET backend: this server only forwards it.
+  // (The browser always talks to this origin, so there are no CORS problems and the backend address stays server-side.)
+  const BACKEND_TARGET = (process.env.BACKEND_URL || "http://localhost:5151").replace(/\/+$/, "");
+  app.use("/api", async (req, res) => {
+    const target = `${BACKEND_TARGET}/api${req.url}`;
+    try {
+      const headers: Record<string, string> = {};
+      if (req.headers["authorization"]) headers["Authorization"] = String(req.headers["authorization"]);
+      if (req.headers["content-type"]) headers["Content-Type"] = String(req.headers["content-type"]);
+      if (req.headers["accept-language"]) headers["Accept-Language"] = String(req.headers["accept-language"]);
+      const hasBody = !["GET", "HEAD", "DELETE"].includes(req.method) && req.body && Object.keys(req.body).length > 0;
+      const backendResponse = await fetch(target, {
+        method: req.method,
+        headers,
+        body: hasBody ? JSON.stringify(req.body) : undefined
+      });
+      res.status(backendResponse.status);
+      const contentType = backendResponse.headers.get("content-type");
+      if (contentType) res.setHeader("Content-Type", contentType);
+      res.send(Buffer.from(await backendResponse.arrayBuffer()));
+    } catch (err: any) {
+      res.status(502).json({ title: "backend.unreachable", detail: `The backend (${BACKEND_TARGET}) could not be reached: ${err?.message || err}` });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

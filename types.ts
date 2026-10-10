@@ -30,7 +30,14 @@ export interface User {
   password?: string;
   role: UserRole;
   isActive: boolean;
-  owningUnit?: string; // واحد سازمانی (ساختار شکست سازمانی)
+  owningUnit?: string; // واحد سازمانی (ساختار شکست سازمانی): the unit's full path, as the backend reports it
+  // Filled from the backend (the sign-in name is the national code, the rest identify the person)
+  firstName?: string;
+  lastName?: string;
+  phoneNumber?: string;
+  email?: string;
+  /** The backend roles the user holds (by name). `role` above is only how the old screens group them. */
+  roleNames?: string[];
 }
 
 export interface OwningUnitTreeNode {
@@ -326,6 +333,8 @@ export interface Calendar {
   specificHolidays?: SpecificHoliday[];
   applyOfficialHolidays?: boolean;
   workHoursPerDay?: number;
+  /** Extra working days (exceptions that open a normally closed day). The screens do not edit them but must not lose them on save. */
+  extraWorkingDays?: SpecificHoliday[];
 }
 
 export type ProjectApprovalStatus = 'Draft' | 'Pending Approval' | 'Approved' | 'Rejected';

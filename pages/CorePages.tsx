@@ -9,24 +9,33 @@ import { FloatingSpheresCanvas } from '../components/FloatingSpheresCanvas';
 
 
 // --- LoginPage ---
-export const LoginPage = ({ onLogin, error }: { onLogin: (u: string, p: string) => void, error: string | null }): ReactElement => {
+export const LoginPage = ({ onLogin, error, captcha, onRefreshCaptcha }: {
+  /** Signs in against the backend; the backend decides whether a CAPTCHA is needed and what any failure says. */
+  onLogin: (username: string, password: string, captchaAnswer?: string) => Promise<void>,
+  error: string | null,
+  captcha?: { imageDataUrl: string } | null,
+  onRefreshCaptcha?: () => void
+}): ReactElement => {
   const { t, language, setLanguage } = useContext(LocalizationContext);
   const { theme, setTheme } = useContext(ThemeContext);
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isFa = language === 'fa';
   const isDark = theme === 'dark';
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    setTimeout(() => {
-      onLogin(username, password);
+    try {
+      await onLogin(username, password, captchaAnswer || undefined);
+    } finally {
+      setCaptchaAnswer('');
       setIsSubmitting(false);
-    }, 150);
+    }
   };
 
   const toggleLanguage = () => {
@@ -112,6 +121,31 @@ export const LoginPage = ({ onLogin, error }: { onLogin: (u: string, p: string) 
               </button>
             </div>
           </div>
+
+          {captcha && (
+            <div className="login-input-group">
+              <label htmlFor="login-captcha" className="login-label">
+                <span className="material-symbols-outlined login-input-icon">shield</span>
+                <span>{isFa ? 'کد امنیتی' : 'Security code'}</span>
+              </label>
+              <div className="login-input-wrapper" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <img src={captcha.imageDataUrl} alt="captcha" style={{ height: '44px', borderRadius: '6px' }} />
+                <button type="button" className="password-toggle-btn" onClick={onRefreshCaptcha} title={isFa ? 'تصویر جدید' : 'New image'} tabIndex={-1}>
+                  <span className="material-symbols-outlined">refresh</span>
+                </button>
+                <input
+                  id="login-captcha"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={captchaAnswer}
+                  onChange={(e) => setCaptchaAnswer(e.target.value)}
+                  required
+                  className="login-input"
+                />
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="login-error-banner">
