@@ -252,7 +252,7 @@ Each stakeholder must contain:
 
     const shouldAutoApprove = isOwnerOrPMOrAdmin || requiresWorkflow === false;
 
-    let initialApproverId: number | undefined = undefined;
+    let initialApproverId: string | undefined = undefined;
     if (!shouldAutoApprove) {
       const stages = dynamicWorkflowSettings?.stakeholders || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.stakeholders;
       if (stages && stages[0]) {

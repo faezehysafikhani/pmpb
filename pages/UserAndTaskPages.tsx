@@ -69,7 +69,7 @@ export const UserManagementPage = ({ users, setUsers, onNavigate, owningUnits = 
       return;
     }
     const newUser: User = {
-      id: Date.now(),
+      id: String(Date.now()),
       username,
       password,
       role,
@@ -273,7 +273,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
     onNavigate: (page: string) => void,
     allProcessedActivities: Map<string, ProjectActivity>,
     delegations: Delegation[],
-    onDelegateTask: (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: number | undefined, delegateeId: number) => void,
+    onDelegateTask: (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: number | undefined, delegateeId: string) => void,
     onDeactivateDelegation: (delegationId: number) => void,
     dynamicWorkflowSettings?: DynamicWorkflowSettings
 }): ReactElement => {
@@ -1000,7 +1000,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
                             : (delegationModalTask.item as EnrichedKanbanTask).description,
                     users: users,
                     currentUserId: currentUser.id,
-                    onSave: (delegateeId: number) => {
+                    onSave: (delegateeId: string) => {
                         const { type, item } = delegationModalTask;
                         onDelegateTask(type, item.id, item.projectId, delegateeId);
                         setDelegationModalTask(null);

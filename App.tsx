@@ -71,7 +71,7 @@ const AppContent = () => {
                 });
 
                 // Ensure all users have distinct unique numeric IDs
-                const usedIds = new Set<number>();
+                const usedIds = new Set<string>();
                 let maxId = 100;
                 updatedList.forEach(u => { if (typeof u.id === 'number' && u.id > maxId) maxId = u.id; });
                 
@@ -142,7 +142,7 @@ const AppContent = () => {
     });
 
     const [calendars, setCalendars] = useState<Calendar[]>(() => {
-        const defaultCalendar: Calendar = { id: 1, name: 'Default', isDefault: true, workingDays: [6, 0, 1, 2, 3], specificHolidays: [] };
+        const defaultCalendar: Calendar = { id: '1', name: 'Default', isDefault: true, workingDays: [6, 0, 1, 2, 3], specificHolidays: [] };
         try {
             const saved = localStorage.getItem('pms_calendars');
             if (saved) {
@@ -1149,7 +1149,7 @@ const AppContent = () => {
         });
     };
     
-    const handleDeleteCalendar = (id: number) => {
+    const handleDeleteCalendar = (id: string) => {
         setCalendars(prev => prev.filter(c => c.id !== id));
     };
     
@@ -1169,7 +1169,7 @@ const AppContent = () => {
         setKnowledgeDocuments(prev => prev.filter(d => d.id !== id));
     };
     
-    const handleDelegateTask = (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: number | undefined, delegateeId: number) => {
+    const handleDelegateTask = (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: number | undefined, delegateeId: string) => {
         // 1. Reassign the task
         if (type === 'action') {
             setActions(prevActions => prevActions.map(action =>

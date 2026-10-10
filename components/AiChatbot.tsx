@@ -222,7 +222,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
   }, [projects]);
 
   // Helper functions
-  const getManagerName = (id: number | null | undefined) => {
+  const getManagerName = (id: string | null | undefined) => {
     if (!id) return 'تعیین نشده';
     const u = users.find(user => Number(user.id) === Number(id));
     return u ? u.username : `کاربر ${id}`;
@@ -265,7 +265,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
       goal: actionData.goal || actionData.name || '',
       requirements: actionData.requirements || 'الزامات اولیه پروژه',
       cost: Number(toEnglishDigits(actionData.cost)) || 0,
-      calendarId: 1,
+      calendarId: '1',
       weightingType: actionData.weightingType || 'manual',
       teamMemberIds: Array.isArray(actionData.teamMemberIds) ? actionData.teamMemberIds.map(Number) : [currentUser?.id || 1],
       risks: Array.isArray(actionData.risks) ? actionData.risks.map((r: any, idx: number) => ({
@@ -327,9 +327,9 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
       title: actionData.title || 'اقدام جدید',
       description: actionData.description || actionData.title || 'اقدام ثبت شده توسط دستیار هوشمند',
       responsibleUserId: actionData.responsibleUserId ? Number(actionData.responsibleUserId) : (currentUser?.id || users[0]?.id || 1),
-      approver1Id: 1,
+      approver1Id: '1',
       status: actionData.status || 'Planning',
-      calendarId: 1,
+      calendarId: '1',
       startDate: actionData.startDate || getISODateString(),
       endDate: actionData.endDate || getISODateString(),
       owningUnit: actionData.owningUnit || owningUnits[0] || 'سازمانی',

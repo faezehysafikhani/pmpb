@@ -330,7 +330,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
         const workflowKey = (tabId === 'status' ? 'status_updates' : tabId === 'delays' ? 'delay_reasons' : tabId === 'docs' ? 'documents' : tabId === 'charter' ? 'charter' : tabId === 'schedule' ? 'activity_progress' : tabId) as keyof DynamicWorkflowSettings;
         const stages = getEffectiveProjectWorkflowStages(workflowKey, projectData as Project, dynamicWorkflowSettings);
 
-        let initialApproverId: number | undefined = undefined;
+        let initialApproverId: string | undefined = undefined;
         if (stages && stages.length > 0 && stages[0]) {
             initialApproverId = resolveWorkflowApproverId(stages[0].approverId, projectData as Project);
         } else {
@@ -726,7 +726,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
     const renderActiveTabContent = () => {
         const isPMOrAdmin = isPMOrOwnerOrAdmin;
         
-        const getFilteredTabItems = <T extends { isApproved?: boolean; submittedBy?: number; currentApproverId?: number; currentStageIndex?: number }>(items: T[], tabId: string): T[] => {
+        const getFilteredTabItems = <T extends { isApproved?: boolean; submittedBy?: string; currentApproverId?: string; currentStageIndex?: number }>(items: T[], tabId: string): T[] => {
             return items.filter(item => {
                 if (item.isApproved) return true;
                 const isSubmitter = currentUser && item.submittedBy === currentUser.id;
@@ -1876,7 +1876,7 @@ export const ProjectDashboardPage = ({ projects, actions = [], users, calendars,
             const titleMatch = nameFilter ? a.title.toLowerCase().includes(nameFilter.toLowerCase()) : true;
             const statusMatch = statusFilter ? a.status === statusFilter : true;
             const unitMatch = unitFilter ? getUnitLevel1And2(a.owningUnit) === unitFilter : true;
-            const pmMatch = pmFilter ? a.responsibleUserId === parseInt(pmFilter) : true;
+            const pmMatch = pmFilter ? a.responsibleUserId === pmFilter : true;
             return titleMatch && statusMatch && unitMatch && pmMatch;
         });
     }, [actions, nameFilter, statusFilter, unitFilter, pmFilter]);
@@ -2551,7 +2551,7 @@ export const ActionDashboardPage = ({ actions, users, onNavigate, owningUnits, p
             const nameMatch = nameFilter ? a.title.toLowerCase().includes(nameFilter.toLowerCase()) : true;
             const statusMatch = statusFilter ? a.status === statusFilter : true;
             const unitMatch = unitFilter ? getUnitLevel1And2(a.owningUnit) === unitFilter : true;
-            const responsibleMatch = responsibleUserFilter ? a.responsibleUserId === parseInt(responsibleUserFilter) : true;
+            const responsibleMatch = responsibleUserFilter ? a.responsibleUserId === responsibleUserFilter : true;
             return nameMatch && statusMatch && unitMatch && responsibleMatch;
         });
     }, [nameFilter, statusFilter, unitFilter, responsibleUserFilter, actions]);
@@ -2586,7 +2586,7 @@ export const ActionDashboardPage = ({ actions, users, onNavigate, owningUnits, p
         }, {} as Record<number, number>);
         const colors = ['#6366F1', '#10B981', '#EC4899', '#F59E0B', '#06B6D4', '#8B5CF6', '#F97316', '#14B8A6', '#3B82F6', '#E11D48', '#84CC16', '#A855F7'];
         return Object.entries(counts).map(([userId, value], index) => {
-            const user = users.find(u => u.id === parseInt(userId));
+            const user = users.find(u => u.id === userId);
             return { name: user?.username || t('unassigned'), value, color: colors[index % colors.length] };
         });
     }, [filteredActions, users, t]);

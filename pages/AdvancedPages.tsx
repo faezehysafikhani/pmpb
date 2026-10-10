@@ -15,7 +15,7 @@ export const CalendarManagementPage = ({ calendars, projects, onNavigate, onDele
     calendars: Calendar[],
     projects: Project[],
     onNavigate: (page: string, context?: any) => void,
-    onDelete: (id: number) => void
+    onDelete: (id: string) => void
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const backIcon = language === 'fa' ? 'arrow_forward' : 'arrow_back';

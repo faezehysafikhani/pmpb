@@ -227,7 +227,7 @@ export function generateMsProjectXml(
   }
 
   // Generate Resources and Assignments
-  const resourceXmlMap = new Map<number, { resUid: number; user: User }>();
+  const resourceXmlMap = new Map<string, { resUid: number; user: User }>();
   let resourceCounter = 1;
   if (includeAssignments && users && users.length > 0) {
     flattenedTasks.forEach(t => {

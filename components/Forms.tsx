@@ -536,7 +536,7 @@ export const ActionForm = ({
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
         if (name === 'responsibleUserId') {
-            const newRespId = value ? parseInt(value, 10) : null;
+            const newRespId = value || null;
             const prevRespId = actionData.responsibleUserId;
             // If approver1Id was not explicitly set or was equal to the previous responsible user, keep it synced
             const shouldSyncApprover1 = !actionData.approver1Id || actionData.approver1Id === prevRespId;

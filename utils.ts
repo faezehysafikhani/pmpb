@@ -1306,7 +1306,7 @@ export const calculateSCurveData = (
     language: string = 'fa'
 ): SCurveDataPoint[] => {
     const effectiveCal: Calendar = calendar || {
-        id: 1,
+        id: '1',
         name: 'Default',
         workingDays: [0, 1, 2, 3, 4],
         workHoursPerDay: 8

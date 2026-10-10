@@ -3694,8 +3694,8 @@ export const DelegationModal = ({ isOpen, onClose, taskName, users, currentUserI
     onClose: () => void;
     taskName: string;
     users: User[];
-    currentUserId: number;
-    onSave: (delegateeId: number) => void;
+    currentUserId: string;
+    onSave: (delegateeId: string) => void;
 }): ReactElement | null => {
     const { t } = useContext(LocalizationContext);
     const [selectedUserId, setSelectedUserId] = useState<string>('');
@@ -3712,7 +3712,7 @@ export const DelegationModal = ({ isOpen, onClose, taskName, users, currentUserI
 
     const handleSave = () => {
         if (selectedUserId) {
-            onSave(parseInt(selectedUserId, 10));
+            onSave(selectedUserId);
         }
     };
 

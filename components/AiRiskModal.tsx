@@ -275,7 +275,7 @@ Each risk must contain:
 
     const shouldAutoApprove = isOwnerOrPMOrAdmin || requiresWorkflow === false;
 
-    let initialApproverId: number | undefined = undefined;
+    let initialApproverId: string | undefined = undefined;
     if (!shouldAutoApprove) {
       const stages = dynamicWorkflowSettings?.risks || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.risks;
       if (stages && stages[0]) {

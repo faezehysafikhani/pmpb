@@ -55,7 +55,7 @@ export const ReportsDashboardPage = ({
   }, [projects, calendars]);
 
   // Helper to resolve manager name
-  const getManagerName = (id: number | null) => {
+  const getManagerName = (id: string | null) => {
     if (id === null) return language === 'fa' ? 'بدون مدیر' : 'No Manager';
     const user = users.find((u) => u.id === id);
     return user ? user.username : (language === 'fa' ? `شناسه ${id}` : `ID ${id}`);
@@ -187,8 +187,8 @@ export const ReportsDashboardPage = ({
 
   // --- 3. PROJECT MANAGERS PERFORMANCE EVALUATION CALCULATIONS ---
   const managerPerformanceData = useMemo(() => {
-    const managersMap: Record<number, {
-      managerId: number;
+    const managersMap: Record<string, {
+      managerId: string;
       projectsCount: number;
       completedCount: number;
       inProgressCount: number;

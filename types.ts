@@ -5,8 +5,8 @@ export interface Delegation {
   type: 'waterfall' | 'agile' | 'action';
   itemId: string | number; // activityId, taskId, or actionId
   projectId?: number;
-  delegatorId: number;
-  delegateeId: number;
+  delegatorId: string;
+  delegateeId: string;
   delegationDate: string; // ISO Date String
   isActive: boolean;
 }
@@ -24,7 +24,7 @@ export type PlannedProgressType = 'continuous' | 'zero-hundred';
 
 export type UserRole = 'Admin' | 'Project Manager' | 'Project Team';
 export interface User {
-  id: number;
+  id: string;
   username: string;
   name?: string;
   password?: string;
@@ -79,7 +79,7 @@ export interface ProjectContract {
   beneficiaryName: string; // نام بهره بردار
   description?: string;    // شرح / توضیحات قرارداد
   amendments?: ContractAmendment[]; // الحاقیه‌ها (مستر-دیتیل)
-  submittedBy?: number;
+  submittedBy?: string;
 }
 
 export interface ProjectInvoice {
@@ -92,7 +92,7 @@ export interface ProjectInvoice {
   contractId?: number;     // شناسه قرارداد مربوطه
   contractTitle?: string;  // عنوان قرارداد مربوطه (کمبوباکس عنوان قرارداد بر اساس اطلاعات تب قرارداد)
   description?: string;    // شرح یا توضیحات صورتحساب
-  submittedBy?: number;
+  submittedBy?: string;
 }
 
 export interface ProjectContractPermissions {
@@ -120,18 +120,18 @@ export interface ProjectRisk {
   impact: 'Low' | 'Medium' | 'High';
   responsePlan: string;
   assignedTo: string;
-  submittedBy?: number;
+  submittedBy?: string;
   isApproved?: boolean;
   isRejected?: boolean;
   currentStageIndex?: number;
-  currentApproverId?: number;
+  currentApproverId?: string;
   approvalHistory?: ProjectApprovalRecord[];
   // Risk Response Execution & Verification Workflow fields:
   responseStatus?: WorkStatus;
   submittedResponseStatus?: WorkStatus;
   verificationStatus?: ProgressUpdateStatus | 'Unsubmitted';
   verificationStageIndex?: number;
-  verificationApproverId?: number;
+  verificationApproverId?: string;
   verificationHistory?: ProjectApprovalRecord[];
   verificationComment?: string;
 }
@@ -206,11 +206,11 @@ export interface ProjectStakeholder {
   interest: 'Low' | 'High'; // علاقه: کم / زیاد
   strategy?: string; // استراتژی برخورد
   requirements?: string; // نیازمندی‌ها و الزامات فنی و ارتباطی
-  submittedBy?: number;
+  submittedBy?: string;
   isApproved?: boolean;
   isRejected?: boolean;
   currentStageIndex?: number;
-  currentApproverId?: number;
+  currentApproverId?: string;
   approvalHistory?: ProjectApprovalRecord[];
 }
 
@@ -237,11 +237,11 @@ export interface ProjectStatusUpdate {
   id: number;
   description: string;
   date: string; // YYYY-MM-DD
-  submittedBy?: number;
+  submittedBy?: string;
   isApproved?: boolean;
   isRejected?: boolean;
   currentStageIndex?: number;
-  currentApproverId?: number;
+  currentApproverId?: string;
   approvalHistory?: ProjectApprovalRecord[];
 }
 
@@ -251,14 +251,14 @@ export interface ProjectDocument {
   description: string;
   type: 'Letter' | 'Meeting Minutes' | 'Report' | 'Other';
   date?: string; // YYYY-MM-DD
-  submittedBy?: number;
+  submittedBy?: string;
   isApproved?: boolean;
   isRejected?: boolean;
   aiSummary?: string;
   aiRelevance?: string;
   aiRelevanceReason?: string;
   currentStageIndex?: number;
-  currentApproverId?: number;
+  currentApproverId?: string;
   approvalHistory?: ProjectApprovalRecord[];
 }
 
@@ -274,12 +274,12 @@ export interface ProjectActivity {
   importance?: 'Low' | 'Medium' | 'High';
   complexity?: 'Low' | 'Medium' | 'High';
   weight: number;
-  assignedToId: number | null;
+  assignedToId: string | null;
   actualProgress: number; // percentage 0-100
   parentId: string | null;
-  approver1Id?: number | null;
-  approver2Id?: number | null;
-  approver3Id?: number | null;
+  approver1Id?: string | null;
+  approver2Id?: string | null;
+  approver3Id?: string | null;
   // Calculated fields
   wbsCode?: string;
   startDate?: Date;
@@ -305,12 +305,12 @@ export interface KanbanTask {
   description: string;
   dueDate: string;
   priority: TaskPriority;
-  assignedToId: number | null;
+  assignedToId: string | null;
   status: KanbanStatus;
   sprintNumber?: number;
-  approver1Id?: number | null;
-  approver2Id?: number | null;
-  approver3Id?: number | null;
+  approver1Id?: string | null;
+  approver2Id?: string | null;
+  approver3Id?: string | null;
 }
 
 export interface SpecificHoliday {
@@ -319,7 +319,7 @@ export interface SpecificHoliday {
 }
 
 export interface Calendar {
-  id: number;
+  id: string;
   name: string;
   isDefault?: boolean;
   workingDays: number[]; // 0 for Sunday, 6 for Saturday
@@ -342,11 +342,11 @@ export interface ProjectDelayReason {
   id: number;
   description: string;
   date: string; // YYYY-MM-DD
-  submittedBy?: number;
+  submittedBy?: string;
   isApproved?: boolean;
   isRejected?: boolean;
   currentStageIndex?: number;
-  currentApproverId?: number;
+  currentApproverId?: string;
   approvalHistory?: ProjectApprovalRecord[];
 }
 
@@ -362,8 +362,8 @@ export interface Project {
   name: string;
   code?: string;
   cost?: number;
-  ownerId?: number | null;
-  projectManagerId: number | null;
+  ownerId?: string | null;
+  projectManagerId: string | null;
   startDate: string;
   endDate: string;
   status: WorkStatus;
@@ -372,9 +372,9 @@ export interface Project {
   goal: string;
   requirements: string;
   constraintsAndAssumptions?: string;
-  calendarId: number;
+  calendarId: string;
   // Tabs
-  teamMemberIds: number[];
+  teamMemberIds: string[];
   risks: ProjectRisk[];
   stakeholders?: ProjectStakeholder[];
   statusUpdates: ProjectStatusUpdate[];
@@ -395,7 +395,7 @@ export interface Project {
   riskDefinitions?: RiskProbabilityImpactDefinitions;
   riskMatrixColors?: Record<string, 'red' | 'yellow' | 'green'>;
   stakeholderStrategies?: StakeholderStrategies;
-  approver1Id?: number | null;
+  approver1Id?: string | null;
   contracts?: ProjectContract[];
   invoices?: ProjectInvoice[];
   contractPermissions?: ProjectContractPermissions;
@@ -428,13 +428,13 @@ export interface ActionItem {
   id: number;
   title: string;
   description: string;
-  ownerUserId?: number | null; // مالک اقدام (ایجادکننده)
-  responsibleUserId: number | null;
-  approver1Id: number | null;
-  approver2Id?: number | null;
-  approver3Id?: number | null;
+  ownerUserId?: string | null; // مالک اقدام (ایجادکننده)
+  responsibleUserId: string | null;
+  approver1Id: string | null;
+  approver2Id?: string | null;
+  approver3Id?: string | null;
   status: WorkStatus;
-  calendarId: number;
+  calendarId: string;
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   owningUnit: string;
@@ -457,7 +457,7 @@ export interface ActionItem {
   isPending?: boolean;
   isRejected?: boolean;
   currentStageIndex?: number;
-  currentApproverId?: number;
+  currentApproverId?: string;
   approvalHistory?: ProjectApprovalRecord[];
 }
 
@@ -481,7 +481,7 @@ export interface ProgressUpdate {
     taskId?: number;
     actionId?: number;
     riskId?: number;
-    submittedBy: number;
+    submittedBy: string;
     submittedProgress?: number;
     approvedProgress?: number; // درصد پیشرفت تاییدی
     isPartialRejection?: boolean; // رد همراه با ثبت درصد پیشرفت تاییدی
@@ -495,7 +495,7 @@ export interface ProgressUpdate {
     reviewDate?: string; // YYYY-MM-DD
     submissionComment?: string;
     documentName?: string;
-    currentApproverId?: number;
+    currentApproverId?: string;
     currentStageIndex?: number;
     stageTitle?: string;
     approvalHistory?: ProjectApprovalRecord[];
@@ -516,7 +516,7 @@ export interface WorkflowStage {
   id: string;
   stageNumber: number;
   stageTitle: string; // e.g. "تایید نهایی" or "بررسی اولیه"
-  approverId: 'ROLE_PM' | 'ROLE_OWNER' | number; // 'ROLE_PM': مدیر پروژه/اقدام, 'ROLE_OWNER': مالک پروژه/اقدام, or userId
+  approverId: 'ROLE_PM' | 'ROLE_OWNER' | string; // 'ROLE_PM': مدیر پروژه/اقدام, 'ROLE_OWNER': مالک پروژه/اقدام, or userId
 }
 
 export type DynamicWorkflowSettings = Record<WorkflowEntityType, WorkflowStage[]>;
@@ -553,24 +553,23 @@ export const DEFAULT_DYNAMIC_WORKFLOW_SETTINGS: DynamicWorkflowSettings = {
 };
 
 export const resolveWorkflowApproverId = (
-  approverId: 'ROLE_PM' | 'ROLE_OWNER' | number | string,
+  approverId: 'ROLE_PM' | 'ROLE_OWNER' | string,
   project?: Project | null,
   action?: ActionItem | null,
-  fallbackAdminId: number = 1
-): number => {
+  fallbackAdminId: string = '1'
+): string => {
   if (approverId === 'ROLE_PM') {
-    if (project?.projectManagerId) return Number(project.projectManagerId);
-    if (action?.responsibleUserId) return Number(action.responsibleUserId);
+    if (project?.projectManagerId) return project.projectManagerId;
+    if (action?.responsibleUserId) return action.responsibleUserId;
     return fallbackAdminId;
   }
   if (approverId === 'ROLE_OWNER') {
-    if (project?.ownerId) return Number(project.ownerId);
-    if (action?.ownerUserId) return Number(action.ownerUserId);
-    if (project?.projectManagerId) return Number(project.projectManagerId);
+    if (project?.ownerId) return project.ownerId;
+    if (action?.ownerUserId) return action.ownerUserId;
+    if (project?.projectManagerId) return project.projectManagerId;
     return fallbackAdminId;
   }
-  const numeric = Number(approverId);
-  return !isNaN(numeric) && numeric > 0 ? numeric : fallbackAdminId;
+  return approverId || fallbackAdminId;
 };
 
 export const getEffectiveProjectWorkflowStages = (
