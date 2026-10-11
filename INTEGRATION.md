@@ -6,7 +6,7 @@ Plan and the list of backend additions: `docs/ui-integration/PLAN.md` in the bac
 
 ## Running it
 
-1. Backend: run the SQL scripts from `docs/upgrade` of the backend repository, then start `PostBank.Api` (default `http://localhost:5151`).
+1. Backend: run the SQL scripts from `docs/upgrade` of the backend repository, then start `PostBank.Api` (NOT `NexusCore.Api`: that host does not register the project-management modules) (default `http://localhost:5251`).
 2. UI: `npm install`, copy `.env.example` to `.env.local`, set `BACKEND_URL` if the backend is elsewhere, `npm run dev` (http://localhost:3000).
    `server.ts` forwards every `/api` request that is not an AI route to the backend, so the browser never talks to it directly (no CORS).
 3. Sign in with the backend's administrator account (a username - the national code - and password; after a failed attempt a CAPTCHA is asked for).

@@ -1507,7 +1507,7 @@ ${JSON.stringify(dbSummary.users || [], null, 2)}
 
   // Everything under /api that is not an AI route belongs to the .NET backend: this server only forwards it.
   // (The browser always talks to this origin, so there are no CORS problems and the backend address stays server-side.)
-  const BACKEND_TARGET = (process.env.BACKEND_URL || "http://localhost:5151").replace(/\/+$/, "");
+  const BACKEND_TARGET = (process.env.BACKEND_URL || "http://localhost:5251").replace(/\/+$/, "");
   app.use("/api", async (req, res) => {
     const target = `${BACKEND_TARGET}/api${req.url}`;
     try {
