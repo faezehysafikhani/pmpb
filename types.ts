@@ -121,7 +121,7 @@ export interface ProjectInvoicePermissions {
 export type ProjectType = 'waterfall' | 'agile';
 
 export interface ProjectRisk {
-  id: number;
+  id: string;
   description: string;
   probability: 'Low' | 'Medium' | 'High';
   impact: 'Low' | 'Medium' | 'High';
@@ -207,7 +207,7 @@ export const DEFAULT_STAKEHOLDER_STRATEGIES: StakeholderStrategies = {
 };
 
 export interface ProjectStakeholder {
-  id: number;
+  id: string;
   name: string; // نام / عنوان ذینفع
   power: 'Low' | 'High'; // قدرت: کم / زیاد
   interest: 'Low' | 'High'; // علاقه: کم / زیاد
@@ -241,7 +241,7 @@ export const getStakeholderStrategy = (
 };
 
 export interface ProjectStatusUpdate {
-  id: number;
+  id: string;
   description: string;
   date: string; // YYYY-MM-DD
   submittedBy?: string;
@@ -253,11 +253,14 @@ export interface ProjectStatusUpdate {
 }
 
 export interface ProjectDocument {
-  id: number;
+  id: string;
   name: string;
   description: string;
   type: 'Letter' | 'Meeting Minutes' | 'Report' | 'Other';
   date?: string; // YYYY-MM-DD
+  /** The uploaded file, as the backend holds it. */
+  fileName?: string;
+  sizeBytes?: number;
   submittedBy?: string;
   isApproved?: boolean;
   isRejected?: boolean;
@@ -348,7 +351,7 @@ export interface ProjectApprovalRecord {
 }
 
 export interface ProjectDelayReason {
-  id: number;
+  id: string;
   description: string;
   date: string; // YYYY-MM-DD
   submittedBy?: string;
@@ -449,8 +452,8 @@ export interface ActionItem {
   owningUnit: string;
   projectId?: string;
   sourceType?: 'manual' | 'risk' | 'stakeholder';
-  sourceRiskId?: number;
-  sourceStakeholderId?: number;
+  sourceRiskId?: string | number;
+  sourceStakeholderId?: string | number;
   sourceInfo?: {
     type: 'risk' | 'stakeholder';
     projectName?: string;

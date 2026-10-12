@@ -86,13 +86,15 @@ export const sessionEvents = new EventTarget();
 
 async function send<T>(method: string, url: string, body?: unknown, retry = true): Promise<ApiResult<T>> {
   const headers: Record<string, string> = {};
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  // A FormData body (a file upload) sets its own multipart content type, with the boundary.
+  const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
+  if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
   const token = tokenStore.access;
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   let response: Response;
   try {
-    response = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+    response = await fetch(url, { method, headers, body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body) });
   } catch (err: any) {
     return { ok: false, error: { status: 0, code: 'network', message: err?.message || 'The server could not be reached.' } };
   }
@@ -109,7 +111,37 @@ async function send<T>(method: string, url: string, body?: unknown, retry = true
   return { ok: true, value: (text ? JSON.parse(text) : undefined) as T };
 }
 
+/** Fetches a file with the session's token and hands it to the browser to save (the backend names it in Content-Disposition). */
+async function download(url: string, fallbackName: string, retry = true): Promise<ApiResult<void>> {
+  const token = tokenStore.access;
+  let response: Response;
+  try {
+    response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch (err: any) {
+    return { ok: false, error: { status: 0, code: 'network', message: err?.message || 'The server could not be reached.' } };
+  }
+  if (response.status === 401 && retry && token && await refreshSession()) return download(url, fallbackName, false);
+  if (!response.ok) return { ok: false, error: await toError(response) };
+
+  const disposition = response.headers.get('content-disposition') || '';
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+  const plain = /filename="?([^";]+)"?/i.exec(disposition)?.[1];
+  let name = fallbackName;
+  try { name = encoded ? decodeURIComponent(encoded) : plain || fallbackName; } catch { name = plain || fallbackName; }
+
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  return { ok: true, value: undefined };
+}
+
 export const api = {
+  download,
   get: <T>(url: string) => send<T>('GET', url),
   post: <T>(url: string, body?: unknown) => send<T>('POST', url, body ?? {}),
   put: <T>(url: string, body?: unknown) => send<T>('PUT', url, body ?? {}),

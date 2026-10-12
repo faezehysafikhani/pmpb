@@ -12,6 +12,8 @@ import {
     ApprovalCommentModal, TabItemHistoryModal
 } from '../components/Modals';
 import { formatDate, toPersianDigits, getISODateString, getISODateTimeString } from '../utils';
+import { useProjects } from '../directory/ProjectsContext';
+import type { RegisterKind } from '../services/backend/registers';
 import { ProgressBar } from '../components/Indicators';
 import { OwningUnitTreeSelect } from '../components/Forms';
 import type { EditUserForm, NewUserForm, Outcome } from '../directory/DirectoryContext';
@@ -268,7 +270,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
     onAddProgressUpdate: (projectId: string, activityId: string, progress: number, submissionComment: string, documentName?: string) => void,
     onAddKanbanStatusUpdate: (projectId: string, taskId: number, newStatus: KanbanStatus, comment: string) => void,
     onAddActionStatusUpdate: (actionId: number, newStatus: WorkStatus, currentStatus: WorkStatus, comment: string) => void,
-    onUpdateRiskResponseStatus?: (projectId: string, riskId: number, newStatus: WorkStatus, comment: string) => void,
+    onUpdateRiskResponseStatus?: (projectId: string, riskId: string, newStatus: WorkStatus, comment: string) => void,
     onNavigate: (page: string) => void,
     allProcessedActivities: Map<string, ProjectActivity>,
     delegations: Delegation[],
@@ -1236,7 +1238,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
             projectName: string;
             tabId: 'risks' | 'status' | 'delays' | 'docs' | 'stakeholders';
             tabLabel: string;
-            itemId: number;
+            itemId: string;
             description: string;
             submitterName: string;
         }[] = [];
@@ -1382,191 +1384,80 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
         return list;
     }, [projects, users, currentUser, language, dynamicWorkflowSettings]);
 
-    const handleApproveTabItem = (projectId: string, tabId: string, itemId: number, comment?: string) => {
+    // The approval of a register item is the backend's workflow: it records the decision, moves to the next step or finishes, and checks
+    // that the signed-in user is the one who may decide. The one exception is the risk-response verification round (below), which is
+    // connected in a later phase.
+    const registers = useProjects();
+    const registerKindOfTab: Record<string, RegisterKind> = { risks: 'risk', stakeholders: 'stakeholder', status: 'status', delays: 'delay', docs: 'document' };
+
+    const verifyRisk = (projectId: string, itemId: string, approve: boolean, comment?: string) => {
+        const actorName = currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username || 'User';
+        let finalStatus: WorkStatus | null = null;
         setProjects(prev => prev.map(p => {
             if (p.id !== projectId) return p;
-            
-            const actorName = currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username || 'User';
-
-            const updateTabArray = (items: any[], workflowKey: WorkflowEntityType) => {
-                const stages = getEffectiveProjectWorkflowStages(workflowKey, p, dynamicWorkflowSettings);
-                return (items || []).map(item => {
-                    if (item.id !== itemId) return item;
-                    const currentStageIdx = item.currentStageIndex ?? 0;
+            const stages = getEffectiveProjectWorkflowStages('risks', p, dynamicWorkflowSettings);
+            return {
+                ...p,
+                risks: (p.risks || []).map(r => {
+                    if (r.id !== itemId) return r;
+                    const currentStageIdx = r.verificationStageIndex ?? 0;
                     const currentStage = stages ? stages[currentStageIdx] : undefined;
                     const stageTitle = currentStage ? currentStage.stageTitle : (language === 'fa' ? `مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Stage ${currentStageIdx + 1}`);
-
-                    const baseHistory = item.approvalHistory && item.approvalHistory.length > 0
-                        ? item.approvalHistory
+                    const baseHistory = r.verificationHistory && r.verificationHistory.length > 0
+                        ? r.verificationHistory
                         : [{
                             action: 'Submitted' as const,
-                            date: item.date || getISODateTimeString(),
-                            actor: (() => {
-                                const u = users.find(usr => String(usr.id) === String(item.submittedBy));
-                                return u ? (u.name ? `${u.name} (${u.username})` : u.username) : 'کاربر';
-                            })(),
-                            stageTitle: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission',
-                            comment: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission'
+                            date: getISODateTimeString(),
+                            actor: r.assignedTo || 'مسئول ریسک',
+                            stageTitle: language === 'fa' ? 'ثبت وضعیت اقدام' : 'Submit Response Status',
+                            comment: language === 'fa' ? 'ثبت وضعیت اقدام پاسخ ریسک' : 'Submit Response Status'
                         }];
 
+                    if (!approve) {
+                        const rec: ProjectApprovalRecord = {
+                            action: 'Rejected', date: getISODateTimeString(), actor: actorName, stageTitle,
+                            comment: comment || (language === 'fa' ? 'عدم تایید صحه گذاری' : 'Verification Rejected')
+                        };
+                        return { ...r, verificationStatus: 'Rejected', verificationHistory: [...baseHistory, rec] };
+                    }
+
                     const hasNextStage = !!(stages && currentStageIdx < stages.length - 1);
-                    const isFinal = !hasNextStage;
-
                     const rec: ProjectApprovalRecord = {
-                        action: 'Approved',
-                        date: getISODateTimeString(),
-                        actor: actorName,
-                        stageTitle,
-                        comment: comment || (isFinal ? (language === 'fa' ? 'تایید نهایی شد' : 'Final Approved') : (language === 'fa' ? `تایید مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Approved Stage ${currentStageIdx + 1}`))
+                        action: 'Approved', date: getISODateTimeString(), actor: actorName, stageTitle,
+                        comment: comment || (!hasNextStage ? (language === 'fa' ? 'تایید نهایی صحه گذاری شد' : 'Final Verification Approved') : (language === 'fa' ? `تایید مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Approved Stage ${currentStageIdx + 1}`))
                     };
-
                     const updatedHistory = [...baseHistory, rec];
-
                     if (hasNextStage && stages) {
                         const nextIdx = currentStageIdx + 1;
                         const nextStage = stages[nextIdx];
                         const nextApproverId = nextStage ? resolveWorkflowApproverId(nextStage.approverId, p) : p.projectManagerId;
-                        return { ...item, currentStageIndex: nextIdx, currentApproverId: nextApproverId, isApproved: false, isRejected: false, approvalHistory: updatedHistory };
+                        return { ...r, verificationStageIndex: nextIdx, verificationApproverId: nextApproverId, verificationStatus: 'Pending Approval', verificationHistory: updatedHistory };
                     }
-                    return { ...item, isApproved: true, isRejected: false, approvalHistory: updatedHistory };
-                });
+                    finalStatus = r.submittedResponseStatus || r.responseStatus || 'Completed';
+                    return { ...r, responseStatus: finalStatus, verificationStatus: 'Approved', verificationHistory: updatedHistory };
+                })
             };
-
-            if (tabId === 'risks') return { ...p, risks: updateTabArray(p.risks || [], 'risks') };
-            if (tabId === 'stakeholders') return { ...p, stakeholders: updateTabArray(p.stakeholders || [], 'stakeholders') };
-            if (tabId === 'status') return { ...p, statusUpdates: updateTabArray(p.statusUpdates || [], 'status_updates') };
-            if (tabId === 'delays') return { ...p, delayReasons: updateTabArray(p.delayReasons || [], 'delay_reasons') };
-            if (tabId === 'docs') return { ...p, documents: updateTabArray(p.documents || [], 'documents') };
-
-            if (tabId === 'risk_verification') {
-                const stages = getEffectiveProjectWorkflowStages('risks', p, dynamicWorkflowSettings);
-                return {
-                    ...p,
-                    risks: (p.risks || []).map(r => {
-                        if (r.id !== itemId) return r;
-                        const currentStageIdx = r.verificationStageIndex ?? 0;
-                        const currentStage = stages ? stages[currentStageIdx] : undefined;
-                        const stageTitle = currentStage ? currentStage.stageTitle : (language === 'fa' ? `مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Stage ${currentStageIdx + 1}`);
-
-                        const baseHistory = r.verificationHistory && r.verificationHistory.length > 0
-                            ? r.verificationHistory
-                            : [{
-                                action: 'Submitted' as const,
-                                date: getISODateTimeString(),
-                                actor: r.assignedTo || 'مسئول ریسک',
-                                stageTitle: language === 'fa' ? 'ثبت وضعیت اقدام' : 'Submit Response Status',
-                                comment: language === 'fa' ? 'ثبت وضعیت اقدام پاسخ ریسک' : 'Submit Response Status'
-                            }];
-
-                        const hasNextStage = !!(stages && currentStageIdx < stages.length - 1);
-                        const isFinal = !hasNextStage;
-
-                        const rec: ProjectApprovalRecord = {
-                            action: 'Approved',
-                            date: getISODateTimeString(),
-                            actor: actorName,
-                            stageTitle,
-                            comment: comment || (isFinal ? (language === 'fa' ? 'تایید نهایی صحه گذاری شد' : 'Final Verification Approved') : (language === 'fa' ? `تایید مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Approved Stage ${currentStageIdx + 1}`))
-                        };
-
-                        const updatedHistory = [...baseHistory, rec];
-
-                        if (hasNextStage && stages) {
-                            const nextIdx = currentStageIdx + 1;
-                            const nextStage = stages[nextIdx];
-                            const nextApproverId = nextStage ? resolveWorkflowApproverId(nextStage.approverId, p) : p.projectManagerId;
-                            return { ...r, verificationStageIndex: nextIdx, verificationApproverId: nextApproverId, verificationStatus: 'Pending Approval', verificationHistory: updatedHistory };
-                        }
-                        return { ...r, responseStatus: r.submittedResponseStatus || r.responseStatus || 'Completed', verificationStatus: 'Approved', verificationHistory: updatedHistory };
-                    })
-                };
-            }
-
-            return p;
         }));
+        // Once the verification is complete the new response status is the risk's state on the backend.
+        if (finalStatus) void registers.setRiskResponseStatus(projectId, itemId, finalStatus);
     };
 
-    const handleRejectTabItem = (projectId: string, tabId: string, itemId: number, comment?: string) => {
-        setProjects(prev => prev.map(p => {
-            if (p.id !== projectId) return p;
-            const actorName = currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username || 'User';
-
-            const updateTabArray = (items: any[], workflowKey: WorkflowEntityType) => {
-                const stages = getEffectiveProjectWorkflowStages(workflowKey, p, dynamicWorkflowSettings);
-                return (items || []).map(item => {
-                    if (item.id !== itemId) return item;
-                    const currentStageIdx = item.currentStageIndex ?? 0;
-                    const currentStage = stages ? stages[currentStageIdx] : undefined;
-                    const stageTitle = currentStage ? currentStage.stageTitle : (language === 'fa' ? `مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Stage ${currentStageIdx + 1}`);
-
-                    const baseHistory = item.approvalHistory && item.approvalHistory.length > 0
-                        ? item.approvalHistory
-                        : [{
-                            action: 'Submitted' as const,
-                            date: item.date || getISODateTimeString(),
-                            actor: (() => {
-                                const u = users.find(usr => String(usr.id) === String(item.submittedBy));
-                                return u ? (u.name ? `${u.name} (${u.username})` : u.username) : 'کاربر';
-                            })(),
-                            stageTitle: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission',
-                            comment: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission'
-                        }];
-
-                    const rec: ProjectApprovalRecord = {
-                        action: 'Rejected',
-                        date: getISODateTimeString(),
-                        actor: actorName,
-                        stageTitle,
-                        comment: comment || (language === 'fa' ? 'عدم تایید' : 'Rejected')
-                    };
-
-                    return { ...item, isApproved: false, isRejected: true, approvalHistory: [...baseHistory, rec] };
-                });
-            };
-
-            if (tabId === 'risks') return { ...p, risks: updateTabArray(p.risks || [], 'risks') };
-            if (tabId === 'stakeholders') return { ...p, stakeholders: updateTabArray(p.stakeholders || [], 'stakeholders') };
-            if (tabId === 'status') return { ...p, statusUpdates: updateTabArray(p.statusUpdates || [], 'status_updates') };
-            if (tabId === 'delays') return { ...p, delayReasons: updateTabArray(p.delayReasons || [], 'delay_reasons') };
-            if (tabId === 'docs') return { ...p, documents: updateTabArray(p.documents || [], 'documents') };
-
-            if (tabId === 'risk_verification') {
-                const stages = getEffectiveProjectWorkflowStages('risks', p, dynamicWorkflowSettings);
-                return {
-                    ...p,
-                    risks: (p.risks || []).map(r => {
-                        if (r.id !== itemId) return r;
-                        const currentStageIdx = r.verificationStageIndex ?? 0;
-                        const currentStage = stages ? stages[currentStageIdx] : undefined;
-                        const stageTitle = currentStage ? currentStage.stageTitle : (language === 'fa' ? `مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Stage ${currentStageIdx + 1}`);
-
-                        const baseHistory = r.verificationHistory && r.verificationHistory.length > 0
-                            ? r.verificationHistory
-                            : [{
-                                action: 'Submitted' as const,
-                                date: getISODateTimeString(),
-                                actor: r.assignedTo || 'مسئول ریسک',
-                                stageTitle: language === 'fa' ? 'ثبت وضعیت اقدام' : 'Submit Response Status',
-                                comment: language === 'fa' ? 'ثبت وضعیت اقدام پاسخ ریسک' : 'Submit Response Status'
-                            }];
-
-                        const rec: ProjectApprovalRecord = {
-                            action: 'Rejected',
-                            date: getISODateTimeString(),
-                            actor: actorName,
-                            stageTitle,
-                            comment: comment || (language === 'fa' ? 'عدم تایید صحه گذاری' : 'Verification Rejected')
-                        };
-
-                        return { ...r, verificationStatus: 'Rejected', verificationHistory: [...baseHistory, rec] };
-                    })
-                };
-            }
-
-            return p;
-        }));
+    const decideTabItem = async (projectId: string, tabId: string, itemId: string, approve: boolean, comment?: string) => {
+        const kind = registerKindOfTab[tabId];
+        if (kind) {
+            const outcome = await registers.decide(kind, projectId, itemId, approve, comment);
+            if (!outcome.ok) window.alert(outcome.message || (language === 'fa' ? 'انجام نشد.' : 'The decision could not be recorded.'));
+            return;
+        }
+        if (tabId === 'risk_verification') verifyRisk(projectId, itemId, approve, comment);
     };
-    
+
+    const handleApproveTabItem = (projectId: string, tabId: string, itemId: string, comment?: string) =>
+        void decideTabItem(projectId, tabId, itemId, true, comment);
+
+    const handleRejectTabItem = (projectId: string, tabId: string, itemId: string, comment?: string) =>
+        void decideTabItem(projectId, tabId, itemId, false, comment);
+
     const pendingActivityApprovals = useMemo(() => {
         return progressUpdates
             .filter(up => up.status === 'Pending Approval' && up.activityId && String(up.currentApproverId) === String(currentUser.id))

@@ -266,7 +266,7 @@ Each stakeholder must contain:
     const actorName = currentUserObj ? (currentUserObj.name ? `${currentUserObj.name} (${currentUserObj.username})` : currentUserObj.username) : (isFa ? 'کاربر' : 'User');
 
     const newStakeholders: ProjectStakeholder[] = generatedStakeholders.map((s, idx) => ({
-      id: Date.now() + idx,
+      id: String(Date.now() + idx),
       name: s.name || (isFa ? 'ذینفع پروژه' : 'Stakeholder'),
       power: s.power === 'Low' ? 'Low' : 'High',
       interest: s.interest === 'Low' ? 'Low' : 'High',

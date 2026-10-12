@@ -8,7 +8,7 @@ import {
     User, Project, ProjectRisk, ProjectStakeholder, getStakeholderStrategy, ProjectStatusUpdate, ProjectDelayReason, ProjectDocument, ProjectActivity, KanbanTask, 
     EnrichedTask, ProgressUpdate, ProgressUpdateStatus, UserRole, ProjectType, TranslationKey, 
     KanbanStatus, TaskPriority, ActionItem, WorkStatus, SpecificHoliday, Calendar, EnrichedProject, EnrichedKanbanTask,
-    ScheduleSnapshot, Delegation, ProjectApprovalRecord
+    ScheduleSnapshot, Delegation, ProjectApprovalRecord, StakeholderStrategies
 } from '../types';
 import { getISODateString, formatDate, formatDateTime, toJalali, toPersianDigits, enrichProjectWithProgress, calculateScheduleTreeAndProgress, calculateSCurveData, toSafeDate, exportDashboardToLandscapePdf, exportDashboardToPortraitPdf, exportToPdf } from '../utils';
 import { ProgressBar, PerformanceIndicator, StackedProgressBar } from './Indicators';
@@ -1457,13 +1457,16 @@ export const StakeholderModal = ({
     onClose,
     onSave,
     stakeholder,
-    isEditing
+    isEditing,
+    strategies
 }: {
     isOpen: boolean;
     onClose: () => void;
     onSave: (stakeholder: ProjectStakeholder | Omit<ProjectStakeholder, 'id'>) => void;
     stakeholder: ProjectStakeholder | Omit<ProjectStakeholder, 'id'> | null;
     isEditing: boolean;
+    /** The project's own wording per quadrant (from the backend); the strategy itself is worded by the backend when the stakeholder is saved. */
+    strategies?: StakeholderStrategies;
 }): ReactElement | null => {
     const { t, language } = useContext(LocalizationContext);
     const isFa = language === 'fa';
@@ -1475,7 +1478,7 @@ export const StakeholderModal = ({
                 name: '',
                 power: 'High',
                 interest: 'High',
-                strategy: getStakeholderStrategy('High', 'High', language),
+                strategy: getStakeholderStrategy('High', 'High', language, strategies),
                 requirements: ''
             });
         }
@@ -1490,7 +1493,7 @@ export const StakeholderModal = ({
             if (name === 'power' || name === 'interest') {
                 const p = name === 'power' ? value as ('Low' | 'High') : (next.power || 'High');
                 const i = name === 'interest' ? value as ('Low' | 'High') : (next.interest || 'High');
-                next.strategy = getStakeholderStrategy(p, i, language);
+                next.strategy = getStakeholderStrategy(p, i, language, strategies);
             }
             return next;
         });
@@ -1505,7 +1508,7 @@ export const StakeholderModal = ({
                 ...formData,
                 power: p,
                 interest: i,
-                strategy: getStakeholderStrategy(p, i, language)
+                strategy: getStakeholderStrategy(p, i, language, strategies)
             };
             onSave(finalData as (ProjectStakeholder | Omit<ProjectStakeholder, 'id'>));
         } else {
@@ -1515,7 +1518,7 @@ export const StakeholderModal = ({
 
     const currentPower = formData.power || 'High';
     const currentInterest = formData.interest || 'High';
-    const computedStrategy = getStakeholderStrategy(currentPower, currentInterest, language);
+    const computedStrategy = getStakeholderStrategy(currentPower, currentInterest, language, strategies);
 
     return (
         React.createElement("div", { className: "modal-overlay", onClick: onClose },
@@ -1990,7 +1993,8 @@ export const DelayReasonModal = ({ isOpen, onClose, onSave, delayReason }: {
 export const DocumentModal = ({ isOpen, onClose, onSave, project }: {
     isOpen: boolean;
     onClose: () => void;
-    onSave: (doc: Omit<ProjectDocument, 'id'>) => void;
+    /** The chosen file goes with the document: the backend stores it. */
+    onSave: (doc: Omit<ProjectDocument, 'id'>, file: File | null) => void;
     project?: Project;
 }): ReactElement | null => {
     const { t, language } = useContext(LocalizationContext);
@@ -2059,7 +2063,7 @@ export const DocumentModal = ({ isOpen, onClose, onSave, project }: {
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
-        if (file || description) {
+        if (file) {
             let finalSummary = aiSummary;
             let finalRelevance = aiRelevance;
             let finalReason = aiRelevanceReason;
@@ -2083,7 +2087,7 @@ export const DocumentModal = ({ isOpen, onClose, onSave, project }: {
                 aiSummary: finalSummary || (description ? description.slice(0, 100) : 'خلاصه سند بارگذاری شده'),
                 aiRelevance: finalRelevance || 'مرتبط با پروژه',
                 aiRelevanceReason: finalReason || (project?.name ? `مرتبط با موضوع و اهداف پروژه (${project.name})` : 'سند پروژه')
-            });
+            }, file);
             onClose();
         } else {
             alert(t('selectFileAndDesc'));

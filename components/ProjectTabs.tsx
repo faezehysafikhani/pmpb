@@ -598,6 +598,7 @@ export const ProjectRisksTab = ({
     project, 
     onUpdateRisks, 
     onUpdateRiskDefinitions, 
+    onUpdateRiskMatrixColors,
     dynamicWorkflowSettings,
     onSaveAction,
     calendars = [],
@@ -608,17 +609,18 @@ export const ProjectRisksTab = ({
     risks: ProjectRisk[], 
     users?: User[],
     onEdit: (risk: ProjectRisk) => void,
-    onDelete: (id: number) => void,
+    onDelete: (id: string) => void,
     isReadOnly?: boolean,
     isPMOrAdmin?: boolean,
-    onApprove?: (id: number, comment?: string) => void,
-    onReject?: (id: number, comment?: string) => void,
+    onApprove?: (id: string, comment?: string) => void,
+    onReject?: (id: string, comment?: string) => void,
     currentUserId?: string,
     requiresWorkflow?: boolean,
     hideApprovalStatus?: boolean,
     project?: Project,
     onUpdateRisks?: (newRisks: ProjectRisk[]) => void,
     onUpdateRiskDefinitions?: (definitions: RiskProbabilityImpactDefinitions) => void,
+    onUpdateRiskMatrixColors?: (colors: Record<string, RiskCellColor>) => void,
     dynamicWorkflowSettings?: DynamicWorkflowSettings,
     onSaveAction?: (action: ActionItem) => void,
     calendars?: Calendar[],
@@ -630,11 +632,15 @@ export const ProjectRisksTab = ({
     const isFa = language === 'fa';
     const [aiModalOpen, setAiModalOpen] = useState(false);
     const [historyModalInfo, setHistoryModalInfo] = useState<{ title: string; typeLabel: string; history?: any[]; submittedBy?: number; isApproved?: boolean; isRejected?: boolean } | null>(null);
-    const [commentModalState, setCommentModalState] = useState<{ id: number; status: 'Approved' | 'Rejected'; title: string } | null>(null);
+    const [commentModalState, setCommentModalState] = useState<{ id: string; status: 'Approved' | 'Rejected'; title: string } | null>(null);
     const [convertActionItem, setConvertActionItem] = useState<Partial<ActionItem> | null>(null);
     
     // Matrix cell colors state (Default: updated risk matrix colors)
     const [cellColors, setCellColors] = useState<Record<string, RiskCellColor>>(project?.riskMatrixColors || INITIAL_RISK_MATRIX_COLORS);
+    // The colours are the project's own setting on the backend: follow it when it is read back.
+    useEffect(() => {
+        if (project?.riskMatrixColors) setCellColors(project.riskMatrixColors);
+    }, [project?.riskMatrixColors]);
     const [selectedFilter, setSelectedFilter] = useState<{ probability: 'Low' | 'Medium' | 'High'; impact: 'Low' | 'Medium' | 'High' } | null>(null);
     const [matrixClickMode, setMatrixClickMode] = useState<'color' | 'filter'>('color');
     const [isMatrixSectionExpanded, setIsMatrixSectionExpanded] = useState(false);
@@ -709,16 +715,17 @@ export const ProjectRisksTab = ({
 
     const handleCellClick = (prob: 'Low' | 'Medium' | 'High', impact: 'Low' | 'Medium' | 'High') => {
         const key = `${prob}-${impact}`;
-        setCellColors(prev => {
-            const current = prev[key] || 'red';
-            const next: RiskCellColor = current === 'red' ? 'yellow' : (current === 'yellow' ? 'green' : 'red');
-            return { ...prev, [key]: next };
-        });
+        const current = cellColors[key] || 'red';
+        const next: RiskCellColor = current === 'red' ? 'yellow' : (current === 'yellow' ? 'green' : 'red');
+        const updated = { ...cellColors, [key]: next };
+        setCellColors(updated);
+        if (!isReadOnly) onUpdateRiskMatrixColors?.(updated);
     };
 
     const handleResetAllToRed = () => {
         setCellColors(INITIAL_RISK_MATRIX_COLORS);
         setSelectedFilter(null);
+        if (!isReadOnly) onUpdateRiskMatrixColors?.(INITIAL_RISK_MATRIX_COLORS);
     };
 
     const filteredRisks = useMemo(() => {
@@ -1251,11 +1258,11 @@ export const ProjectStakeholdersTab = ({
     stakeholders?: ProjectStakeholder[], 
     users?: User[],
     onEdit: (stakeholder: ProjectStakeholder) => void,
-    onDelete: (id: number) => void,
+    onDelete: (id: string) => void,
     isReadOnly?: boolean,
     isPMOrAdmin?: boolean,
-    onApprove?: (id: number, comment?: string) => void,
-    onReject?: (id: number, comment?: string) => void,
+    onApprove?: (id: string, comment?: string) => void,
+    onReject?: (id: string, comment?: string) => void,
     currentUserId?: string,
     requiresWorkflow?: boolean,
     hideApprovalStatus?: boolean,
@@ -1273,7 +1280,7 @@ export const ProjectStakeholdersTab = ({
     const isFa = language === 'fa';
     const [aiModalOpen, setAiModalOpen] = useState(false);
     const [historyModalInfo, setHistoryModalInfo] = useState<{ title: string; typeLabel: string; history?: any[]; submittedBy?: number; isApproved?: boolean; isRejected?: boolean } | null>(null);
-    const [commentModalState, setCommentModalState] = useState<{ id: number; status: 'Approved' | 'Rejected'; title: string } | null>(null);
+    const [commentModalState, setCommentModalState] = useState<{ id: string; status: 'Approved' | 'Rejected'; title: string } | null>(null);
     const [convertActionItem, setConvertActionItem] = useState<Partial<ActionItem> | null>(null);
     const [selectedFilter, setSelectedFilter] = useState<{ power: 'Low' | 'High'; interest: 'Low' | 'High' } | null>(null);
     const [isMatrixSectionExpanded, setIsMatrixSectionExpanded] = useState(false);
@@ -1307,7 +1314,7 @@ export const ProjectStakeholdersTab = ({
 
         const pVal = sh.power === 'Low' ? 'Low' : 'High';
         const iVal = sh.interest === 'Low' ? 'Low' : 'High';
-        const strategyText = getStakeholderStrategy(pVal, iVal, language, effectiveStrategies);
+        const strategyText = sh.strategy || getStakeholderStrategy(pVal, iVal, language, effectiveStrategies);
 
         const submitterActor = currentUser ? (currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username) : 'کاربر';
         const initialApprovalRecord: ProjectApprovalRecord = isShWorkflowEnabled ? {
@@ -1473,7 +1480,7 @@ export const ProjectStakeholdersTab = ({
 
                                 const pVal = sh.power === 'Low' ? 'Low' : 'High';
                                 const iVal = sh.interest === 'Low' ? 'Low' : 'High';
-                                const strategyText = getStakeholderStrategy(pVal, iVal, language, effectiveStrategies);
+                                const strategyText = sh.strategy || getStakeholderStrategy(pVal, iVal, language, effectiveStrategies);
 
                                 const pBadgeClass = pVal === 'High' ? 'stakeholder-badge-power-high' : 'stakeholder-badge-power-low';
                                 const pBadgeLabel = pVal === 'High' ? (isFa ? 'زیاد' : 'High') : (isFa ? 'کم' : 'Low');
@@ -1616,11 +1623,11 @@ export const ProjectStatusTab = ({ statusUpdates, users, onEdit, onDelete, isRea
     statusUpdates: ProjectStatusUpdate[], 
     users?: User[],
     onEdit: (update: ProjectStatusUpdate) => void,
-    onDelete: (id: number) => void,
+    onDelete: (id: string) => void,
     isReadOnly?: boolean,
     isPMOrAdmin?: boolean,
-    onApprove?: (id: number, comment?: string) => void,
-    onReject?: (id: number, comment?: string) => void,
+    onApprove?: (id: string, comment?: string) => void,
+    onReject?: (id: string, comment?: string) => void,
     currentUserId?: string,
     requiresWorkflow?: boolean,
     hideApprovalStatus?: boolean,
@@ -1629,7 +1636,7 @@ export const ProjectStatusTab = ({ statusUpdates, users, onEdit, onDelete, isRea
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const [historyModalInfo, setHistoryModalInfo] = useState<{ title: string; typeLabel: string; history?: any[]; submittedBy?: number; isApproved?: boolean; isRejected?: boolean } | null>(null);
-    const [commentModalState, setCommentModalState] = useState<{ id: number; status: 'Approved' | 'Rejected'; title: string } | null>(null);
+    const [commentModalState, setCommentModalState] = useState<{ id: string; status: 'Approved' | 'Rejected'; title: string } | null>(null);
     
     return (
         React.createElement("div", null,
@@ -1735,11 +1742,11 @@ export const ProjectDelayReasonsTab = ({ delayReasons, users, onEdit, onDelete, 
     delayReasons: ProjectDelayReason[], 
     users?: User[],
     onEdit: (reason: ProjectDelayReason) => void,
-    onDelete: (id: number) => void,
+    onDelete: (id: string) => void,
     isReadOnly?: boolean,
     isPMOrAdmin?: boolean,
-    onApprove?: (id: number, comment?: string) => void,
-    onReject?: (id: number, comment?: string) => void,
+    onApprove?: (id: string, comment?: string) => void,
+    onReject?: (id: string, comment?: string) => void,
     currentUserId?: string,
     requiresWorkflow?: boolean,
     hideApprovalStatus?: boolean,
@@ -1748,7 +1755,7 @@ export const ProjectDelayReasonsTab = ({ delayReasons, users, onEdit, onDelete, 
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const [historyModalInfo, setHistoryModalInfo] = useState<{ title: string; typeLabel: string; history?: any[]; submittedBy?: number; isApproved?: boolean; isRejected?: boolean } | null>(null);
-    const [commentModalState, setCommentModalState] = useState<{ id: number; status: 'Approved' | 'Rejected'; title: string } | null>(null);
+    const [commentModalState, setCommentModalState] = useState<{ id: string; status: 'Approved' | 'Rejected'; title: string } | null>(null);
     
     return (
         React.createElement("div", null,
@@ -1850,27 +1857,29 @@ export const ProjectDelayReasonsTab = ({ delayReasons, users, onEdit, onDelete, 
     );
 };
 
-export const ProjectDocumentsTab = ({ documents, users, onEdit, onDelete, isReadOnly = false, isPMOrAdmin = false, onApprove, onReject, currentUserId, requiresWorkflow, hideApprovalStatus = false, project, onUpdateDocuments, dynamicWorkflowSettings }: { 
+export const ProjectDocumentsTab = ({ documents, users, onEdit, onDelete, isReadOnly = false, isPMOrAdmin = false, onApprove, onReject, currentUserId, requiresWorkflow, hideApprovalStatus = false, project, onUpdateDocuments, onDownload, dynamicWorkflowSettings }: { 
     documents: ProjectDocument[], 
     users?: User[],
     onEdit: (doc: ProjectDocument) => void,
-    onDelete: (id: number) => void,
+    onDelete: (id: string) => void,
     isReadOnly?: boolean,
     isPMOrAdmin?: boolean,
-    onApprove?: (id: number, comment?: string) => void,
-    onReject?: (id: number, comment?: string) => void,
+    onApprove?: (id: string, comment?: string) => void,
+    onReject?: (id: string, comment?: string) => void,
     currentUserId?: string,
     requiresWorkflow?: boolean,
     hideApprovalStatus?: boolean,
     project?: Project,
     onUpdateDocuments?: (newDocs: ProjectDocument[]) => void,
+    /** Saves the uploaded file (from the backend) to the user's computer. */
+    onDownload?: (doc: ProjectDocument) => void,
     dynamicWorkflowSettings?: DynamicWorkflowSettings
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const isFa = language === 'fa';
-    const [loadingDocId, setLoadingDocId] = useState<number | null>(null);
+    const [loadingDocId, setLoadingDocId] = useState<string | null>(null);
     const [historyModalInfo, setHistoryModalInfo] = useState<{ title: string; typeLabel: string; history?: any[]; submittedBy?: number; isApproved?: boolean; isRejected?: boolean } | null>(null);
-    const [commentModalState, setCommentModalState] = useState<{ id: number; status: 'Approved' | 'Rejected'; title: string } | null>(null);
+    const [commentModalState, setCommentModalState] = useState<{ id: string; status: 'Approved' | 'Rejected'; title: string } | null>(null);
 
     const handleSummarizeDoc = async (doc: ProjectDocument) => {
         setLoadingDocId(doc.id);
@@ -2027,6 +2036,7 @@ export const ProjectDocumentsTab = ({ documents, users, onEdit, onDelete, isRead
                                         className: "action-icon history",
                                         title: t('history')
                                     }, React.createElement("span", { className: "material-symbols-outlined" }, "history")),
+                                    onDownload && React.createElement("button", { onClick: () => onDownload(doc), className: "action-icon", title: isFa ? 'دریافت فایل' : 'Download', "aria-label": isFa ? 'دریافت فایل' : 'Download' }, React.createElement("span", { className: "material-symbols-outlined" }, "download")),
                                     !isReadOnly && isPending && canApproveThisItem && onApprove && onReject && React.createElement(Fragment, null,
                                         React.createElement("button", { onClick: () => setCommentModalState({ id: doc.id, status: 'Approved', title: doc.name }), className: "action-icon edit", style: { color: 'green' }, title: isFa ? 'تایید' : 'Approve' }, React.createElement("span", { className: "material-symbols-outlined" }, "check")),
                                         React.createElement("button", { onClick: () => setCommentModalState({ id: doc.id, status: 'Rejected', title: doc.name }), className: "action-icon delete", style: { color: 'red' }, title: isFa ? 'عدم تایید' : 'Reject' }, React.createElement("span", { className: "material-symbols-outlined" }, "close"))

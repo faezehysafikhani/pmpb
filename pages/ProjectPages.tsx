@@ -16,6 +16,8 @@ import {
     ProjectApprovalRecord, getEffectiveProjectWorkflowStages, isProjectTabCustomWorkflow, ProjectContract, ProjectInvoice
 } from '../types';
 import { useAuth } from '../directory/AuthContext';
+import { useProjects } from '../directory/ProjectsContext';
+import type { RegisterKind } from '../services/backend/registers';
 import { getRuntimeUnitTree } from '../services/backend/runtimeDirectory';
 import { projectErrorText } from '../services/backend/errors';
 import { pickCalendar, getISODateString, getISODateTimeString, enrichProjectWithProgress, calculateScheduleTreeAndProgress, formatDate, toPersianDigits, isActionVisibleToUser, getUnitLevel1And2, exportDashboardToLandscapePdf } from '../utils';
@@ -281,303 +283,162 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
     
     // --- Modal Handlers ---
 
-    const getWorkflowApprovalFields = (tabId: string) => {
-        const workflowKey = (tabId === 'status' ? 'status_updates' : tabId === 'delays' ? 'delay_reasons' : tabId === 'docs' ? 'documents' : tabId === 'charter' ? 'charter' : tabId === 'schedule' ? 'activity_progress' : tabId) as keyof DynamicWorkflowSettings;
-        const stages = getEffectiveProjectWorkflowStages(workflowKey, projectData as Project, dynamicWorkflowSettings);
+    // The registers live on the backend: each handler sends the change there and the project is refreshed with what it now holds.
+    // Approval (who decides next, the history, approved / rejected) is the backend's workflow; nothing about it is computed here.
+    const registers = useProjects();
+    const fa = language === 'fa';
 
-        let initialApproverId: string | undefined = undefined;
-        if (stages && stages.length > 0 && stages[0]) {
-            initialApproverId = resolveWorkflowApproverId(stages[0].approverId, projectData as Project);
-        } else {
-            initialApproverId = projectData.projectManagerId;
+    // The page keeps its own copy of the project while it is being edited; the registers are not part of that edit, so they always follow
+    // what the backend last returned.
+    const liveProject = registers.projects.find(p => p.id === existingProject?.id);
+    useEffect(() => {
+        if (!liveProject) return;
+        setProjectData(prev => ({
+            ...prev,
+            risks: liveProject.risks,
+            stakeholders: liveProject.stakeholders,
+            statusUpdates: liveProject.statusUpdates,
+            delayReasons: liveProject.delayReasons,
+            documents: liveProject.documents,
+            riskDefinitions: liveProject.riskDefinitions,
+            riskMatrixColors: liveProject.riskMatrixColors,
+            stakeholderStrategies: liveProject.stakeholderStrategies
+        }));
+    }, [liveProject?.risks, liveProject?.stakeholders, liveProject?.statusUpdates, liveProject?.delayReasons, liveProject?.documents,
+        liveProject?.riskDefinitions, liveProject?.riskMatrixColors, liveProject?.stakeholderStrategies]);
+
+    /** Runs a register change; a refusal is shown as the backend worded it. Returns whether it went through. */
+    const runChange = async (change: (projectId: string) => Promise<{ ok: boolean; message?: string }>): Promise<boolean> => {
+        if (!projectData.id) {
+            setInfoModal({
+                title: t('error'),
+                message: fa ? 'برای ثبت این مورد، ابتدا پروژه را (به‌صورت پیش‌نویس) ذخیره کنید.' : 'Save the project (as a draft) before adding this.'
+            });
+            return false;
         }
-
-        const isCustom = isProjectTabCustomWorkflow(tabId, projectData as Project);
-        const submitterActor = currentUser ? (currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username) : 'کاربر';
-        const initialRecord: ProjectApprovalRecord = {
-            action: 'Submitted',
-            date: getISODateTimeString(),
-            actor: submitterActor,
-            stageTitle: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission',
-            comment: language === 'fa' 
-                ? (isCustom ? 'ارسال جهت بررسی در گردش کار منحصربفرد پروژه' : 'ارسال جهت بررسی در گردش کار سیستم') 
-                : (isCustom ? 'Submitted for project unique workflow' : 'Submitted for review')
-        };
-
-        return {
-            isApproved: false,
-            isRejected: false,
-            submittedBy: currentUser?.id,
-            currentStageIndex: 0,
-            currentApproverId: initialApproverId,
-            approvalHistory: [initialRecord]
-        };
+        const outcome = await change(projectData.id);
+        if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || (fa ? 'انجام نشد.' : 'The change could not be made.') });
+        return outcome.ok;
     };
 
-    const handleTabItemApproval = (
-        tabKey: 'risks' | 'stakeholders' | 'statusUpdates' | 'delayReasons' | 'documents',
-        workflowKey: 'risks' | 'stakeholders' | 'status_updates' | 'delay_reasons' | 'documents',
-        itemId: number,
-        actionType: 'Approved' | 'Rejected',
-        comment?: string
-    ) => {
-        const items = (projectData[tabKey] || []) as any[];
-        const stages = getEffectiveProjectWorkflowStages(workflowKey, projectData as Project, dynamicWorkflowSettings);
-        const actorName = currentUser ? (currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username) : 'کاربر';
-
-        const updatedItems = items.map(item => {
-            if (item.id !== itemId) return item;
-
-            const currentStageIdx = item.currentStageIndex ?? 0;
-            const currentStage = stages ? stages[currentStageIdx] : undefined;
-            const stageTitle = currentStage ? currentStage.stageTitle : (language === 'fa' ? `مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Stage ${currentStageIdx + 1}`);
-
-            const baseHistory = item.approvalHistory && item.approvalHistory.length > 0
-                ? item.approvalHistory
-                : [{
-                    action: 'Submitted' as const,
-                    date: item.date || getISODateTimeString(),
-                    actor: (() => {
-                        const u = users.find(usr => String(usr.id) === String(item.submittedBy));
-                        return u ? (u.name ? `${u.name} (${u.username})` : u.username) : 'کاربر';
-                    })(),
-                    stageTitle: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission',
-                    comment: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission'
-                }];
-
-            if (actionType === 'Rejected') {
-                const rec: ProjectApprovalRecord = {
-                    action: 'Rejected',
-                    date: getISODateTimeString(),
-                    actor: actorName,
-                    stageTitle,
-                    comment: comment || (language === 'fa' ? 'عدم تایید' : 'Rejected')
-                };
-                return {
-                    ...item,
-                    isApproved: false,
-                    isRejected: true,
-                    approvalHistory: [...baseHistory, rec]
-                };
-            } else {
-                const hasNextStage = !!(stages && currentStageIdx < stages.length - 1);
-                const isFinal = !hasNextStage;
-
-                const rec: ProjectApprovalRecord = {
-                    action: 'Approved',
-                    date: getISODateTimeString(),
-                    actor: actorName,
-                    stageTitle,
-                    comment: comment || (isFinal ? (language === 'fa' ? 'تایید نهایی شد' : 'Final Approved') : (language === 'fa' ? `تایید مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Approved Stage ${currentStageIdx + 1}`))
-                };
-
-                const newHistory = [...baseHistory, rec];
-
-                if (hasNextStage && stages) {
-                    const nextIdx = currentStageIdx + 1;
-                    const nextStage = stages[nextIdx];
-                    const nextApproverId = nextStage ? resolveWorkflowApproverId(nextStage.approverId, projectData as Project) : projectData.projectManagerId;
-
-                    return {
-                        ...item,
-                        currentStageIndex: nextIdx,
-                        currentApproverId: nextApproverId,
-                        isApproved: false,
-                        isRejected: false,
-                        approvalHistory: newHistory
-                    };
-                }
-
-                return {
-                    ...item,
-                    isApproved: true,
-                    isRejected: false,
-                    approvalHistory: newHistory
-                };
-            }
-        });
-
-        const updatedProject = { ...projectData, [tabKey]: updatedItems } as Project;
-        setProjectData(updatedProject);
-        onPartialUpdate(updatedProject);
-    };
+    const decide = (kind: RegisterKind) => (itemId: string, approve: boolean, comment?: string) =>
+        runChange(projectId => registers.decide(kind, projectId, itemId, approve, comment));
 
     // Risks
-    const handleSaveRisk = (riskData: ProjectRisk | Omit<ProjectRisk, 'id'>) => {
-        const currentRisks = projectData.risks || [];
-        let newRisks;
-        const approvalFields = getWorkflowApprovalFields('risks');
-
-        if ('id' in riskData) { // Editing
-            newRisks = currentRisks.map(r => r.id === riskData.id ? { ...r, ...riskData, isApproved: r.isApproved ? true : approvalFields.isApproved, isRejected: r.isApproved ? false : approvalFields.isRejected } as ProjectRisk : r);
-        } else { // Adding
-            newRisks = [...currentRisks, { ...riskData, id: Date.now(), ...approvalFields } as ProjectRisk];
+    const handleSaveRisk = async (riskData: ProjectRisk | Omit<ProjectRisk, 'id'>) => {
+        if (await runChange(projectId => registers.saveRisk(projectId, riskData))) {
+            setIsRiskModalOpen(false);
+            setEditingRisk(null);
         }
-        const updatedProject = { ...projectData, risks: newRisks } as Project;
-        setProjectData(updatedProject);
-        onPartialUpdate(updatedProject);
-        setIsRiskModalOpen(false);
-        setEditingRisk(null);
     };
     const handleEditRisk = (risk: ProjectRisk) => {
         setEditingRisk(risk);
         setIsRiskModalOpen(true);
     };
-    const handleDeleteRisk = (riskId: number) => {
-        if (window.confirm(t('confirmRiskDelete'))) {
-            const newRisks = (projectData.risks || []).filter(r => r.id !== riskId);
-            const updatedProject = { ...projectData, risks: newRisks } as Project;
-            setProjectData(updatedProject);
-            onPartialUpdate(updatedProject);
+    const handleDeleteRisk = (riskId: string) => {
+        if (window.confirm(t('confirmRiskDelete'))) void runChange(projectId => registers.deleteRisk(projectId, riskId));
+    };
+    const handleApproveRisk = (riskId: string, comment?: string) => void decide('risk')(riskId, true, comment);
+    const handleRejectRisk = (riskId: string, comment?: string) => void decide('risk')(riskId, false, comment);
+    /** Applies a whole list of risks (the AI suggestions): what is new is created, what is missing is deleted. */
+    const handleReplaceRisks = async (next: ProjectRisk[]) => {
+        const current = projectData.risks || [];
+        for (const risk of next.filter(r => !current.some(c => c.id === r.id))) {
+            const { id: _unsaved, ...fresh } = risk;
+            if (!(await runChange(projectId => registers.saveRisk(projectId, fresh)))) return;
         }
-    };
-    const handleApproveRisk = (riskId: number, comment?: string) => {
-        handleTabItemApproval('risks', 'risks', riskId, 'Approved', comment);
-    };
-    const handleRejectRisk = (riskId: number, comment?: string) => {
-        handleTabItemApproval('risks', 'risks', riskId, 'Rejected', comment);
+        for (const risk of current.filter(c => !next.some(r => r.id === c.id))) {
+            if (!(await runChange(projectId => registers.deleteRisk(projectId, risk.id)))) return;
+        }
     };
 
     // Stakeholders
-    const handleSaveStakeholder = (stakeholderData: ProjectStakeholder | Omit<ProjectStakeholder, 'id'>) => {
-        const currentStakeholders = projectData.stakeholders || [];
-        let newStakeholders;
-        const approvalFields = getWorkflowApprovalFields('stakeholders');
-
-        if ('id' in stakeholderData) { // Editing
-            newStakeholders = currentStakeholders.map(s => s.id === stakeholderData.id ? { ...s, ...stakeholderData, isApproved: s.isApproved ? true : approvalFields.isApproved, isRejected: s.isApproved ? false : approvalFields.isRejected } as ProjectStakeholder : s);
-        } else { // Adding
-            newStakeholders = [...currentStakeholders, { ...stakeholderData, id: Date.now(), ...approvalFields } as ProjectStakeholder];
+    const handleSaveStakeholder = async (stakeholderData: ProjectStakeholder | Omit<ProjectStakeholder, 'id'>) => {
+        if (await runChange(projectId => registers.saveStakeholder(projectId, stakeholderData))) {
+            setIsStakeholderModalOpen(false);
+            setEditingStakeholder(null);
         }
-        const updatedProject = { ...projectData, stakeholders: newStakeholders } as Project;
-        setProjectData(updatedProject);
-        onPartialUpdate(updatedProject);
-        setIsStakeholderModalOpen(false);
-        setEditingStakeholder(null);
     };
     const handleEditStakeholder = (stakeholder: ProjectStakeholder) => {
         setEditingStakeholder(stakeholder);
         setIsStakeholderModalOpen(true);
     };
-    const handleDeleteStakeholder = (stakeholderId: number) => {
-        if (window.confirm(language === 'fa' ? 'آیا از حذف این ذینفع اطمینان دارید؟' : 'Are you sure you want to delete this stakeholder?')) {
-            const newStakeholders = (projectData.stakeholders || []).filter(s => s.id !== stakeholderId);
-            const updatedProject = { ...projectData, stakeholders: newStakeholders } as Project;
-            setProjectData(updatedProject);
-            onPartialUpdate(updatedProject);
+    const handleDeleteStakeholder = (stakeholderId: string) => {
+        if (window.confirm(fa ? 'آیا از حذف این ذینفع اطمینان دارید؟' : 'Are you sure you want to delete this stakeholder?')) {
+            void runChange(projectId => registers.deleteStakeholder(projectId, stakeholderId));
         }
     };
-    const handleApproveStakeholder = (stakeholderId: number, comment?: string) => {
-        handleTabItemApproval('stakeholders', 'stakeholders', stakeholderId, 'Approved', comment);
+    const handleApproveStakeholder = (stakeholderId: string, comment?: string) => void decide('stakeholder')(stakeholderId, true, comment);
+    const handleRejectStakeholder = (stakeholderId: string, comment?: string) => void decide('stakeholder')(stakeholderId, false, comment);
+    const handleReplaceStakeholders = async (next: ProjectStakeholder[]) => {
+        const current = projectData.stakeholders || [];
+        for (const item of next.filter(n => !current.some(c => c.id === n.id))) {
+            const { id: _unsaved, ...fresh } = item;
+            if (!(await runChange(projectId => registers.saveStakeholder(projectId, fresh)))) return;
+        }
+        for (const item of current.filter(c => !next.some(n => n.id === c.id))) {
+            if (!(await runChange(projectId => registers.deleteStakeholder(projectId, item.id)))) return;
+        }
     };
-    const handleRejectStakeholder = (stakeholderId: number, comment?: string) => {
-        handleTabItemApproval('stakeholders', 'stakeholders', stakeholderId, 'Rejected', comment);
-    };
-    
-    // Status Updates
-    const handleSaveStatus = (description: string) => {
-        if (!description.trim()) return;
-        const currentStatusUpdates = projectData.statusUpdates || [];
-        let newStatusUpdates;
-        const approvalFields = getWorkflowApprovalFields('status');
 
-        if (editingStatus && editingStatus.id) {
-            newStatusUpdates = currentStatusUpdates.map(u => u.id === editingStatus.id ? { ...u, description, isApproved: u.isApproved ? true : approvalFields.isApproved, isRejected: u.isApproved ? false : approvalFields.isRejected } : u);
-        } else {
-            const newUpdate: ProjectStatusUpdate = { id: Date.now(), description, date: getISODateTimeString(), ...approvalFields };
-            newStatusUpdates = [...currentStatusUpdates, newUpdate];
+    // Status updates
+    const handleSaveStatus = async (description: string) => {
+        if (!description.trim()) return;
+        // The planned / actual progress that go with a report are what this screen shows today; the backend will work them out itself
+        // when the schedule is connected (a later phase).
+        const shown = enrichProjectWithProgress(projectData as Project, calendars);
+        const progress = { planned: shown.plannedProgress, actual: shown.actualProgress };
+        if (await runChange(projectId => registers.saveStatusUpdate(projectId, description.trim(), progress, editingStatus?.id))) {
+            setIsStatusModalOpen(false);
+            setEditingStatus(null);
         }
-        const updatedProject = { ...projectData, statusUpdates: newStatusUpdates } as Project;
-        setProjectData(updatedProject);
-        onPartialUpdate(updatedProject);
-        setIsStatusModalOpen(false);
-        setEditingStatus(null);
     };
     const handleEditStatus = (update: ProjectStatusUpdate) => {
         setEditingStatus(update);
         setIsStatusModalOpen(true);
     };
-    const handleDeleteStatus = (id: number) => {
-        if (window.confirm(t('confirmStatusDelete'))) {
-            const newStatusUpdates = (projectData.statusUpdates || []).filter(u => u.id !== id);
-            const updatedProject = { ...projectData, statusUpdates: newStatusUpdates } as Project;
-            setProjectData(updatedProject);
-            onPartialUpdate(updatedProject);
-        }
+    const handleDeleteStatus = (id: string) => {
+        if (window.confirm(t('confirmStatusDelete'))) void runChange(projectId => registers.deleteStatusUpdate(projectId, id));
     };
-    const handleApproveStatus = (id: number, comment?: string) => {
-        handleTabItemApproval('statusUpdates', 'status_updates', id, 'Approved', comment);
-    };
-    const handleRejectStatus = (id: number, comment?: string) => {
-        handleTabItemApproval('statusUpdates', 'status_updates', id, 'Rejected', comment);
-    };
+    const handleApproveStatus = (id: string, comment?: string) => void decide('status')(id, true, comment);
+    const handleRejectStatus = (id: string, comment?: string) => void decide('status')(id, false, comment);
 
-    // Delay Reasons
-    const handleSaveDelay = (description: string) => {
+    // Delay reasons
+    const handleSaveDelay = async (description: string) => {
         if (!description.trim()) return;
-        const currentDelayReasons = projectData.delayReasons || [];
-        let newDelayReasons;
-        const approvalFields = getWorkflowApprovalFields('delays');
-
-        if (editingDelay && editingDelay.id) {
-            newDelayReasons = currentDelayReasons.map(d => d.id === editingDelay.id ? { ...d, description, isApproved: d.isApproved ? true : approvalFields.isApproved, isRejected: d.isApproved ? false : approvalFields.isRejected } : d);
-        } else {
-            const newDelay: ProjectDelayReason = { id: Date.now(), description, date: getISODateTimeString(), ...approvalFields };
-            newDelayReasons = [...currentDelayReasons, newDelay];
+        if (await runChange(projectId => registers.saveDelayReason(projectId, description.trim(), editingDelay?.id))) {
+            setIsDelayModalOpen(false);
+            setEditingDelay(null);
         }
-        const updatedProject = { ...projectData, delayReasons: newDelayReasons } as Project;
-        setProjectData(updatedProject);
-        onPartialUpdate(updatedProject);
-        setIsDelayModalOpen(false);
-        setEditingDelay(null);
     };
     const handleEditDelay = (reason: ProjectDelayReason) => {
         setEditingDelay(reason);
         setIsDelayModalOpen(true);
     };
-    const handleDeleteDelay = (id: number) => {
-        const confirmMsg = language === 'fa' ? 'آیا از حذف این علت تاخیر اطمینان دارید؟' : 'Are you sure you want to delete this delay reason?';
-        if (window.confirm(confirmMsg)) {
-            const newDelayReasons = (projectData.delayReasons || []).filter(d => d.id !== id);
-            const updatedProject = { ...projectData, delayReasons: newDelayReasons } as Project;
-            setProjectData(updatedProject);
-            onPartialUpdate(updatedProject);
-        }
+    const handleDeleteDelay = (id: string) => {
+        const confirmMsg = fa ? 'آیا از حذف این علت تاخیر اطمینان دارید؟' : 'Are you sure you want to delete this delay reason?';
+        if (window.confirm(confirmMsg)) void runChange(projectId => registers.deleteDelayReason(projectId, id));
     };
-    const handleApproveDelay = (id: number, comment?: string) => {
-        handleTabItemApproval('delayReasons', 'delay_reasons', id, 'Approved', comment);
-    };
-    const handleRejectDelay = (id: number, comment?: string) => {
-        handleTabItemApproval('delayReasons', 'delay_reasons', id, 'Rejected', comment);
-    };
+    const handleApproveDelay = (id: string, comment?: string) => void decide('delay')(id, true, comment);
+    const handleRejectDelay = (id: string, comment?: string) => void decide('delay')(id, false, comment);
 
     // Documents
-    const handleSaveDocument = (doc: Omit<ProjectDocument, 'id'>) => {
-        const approvalFields = getWorkflowApprovalFields('docs');
-        const newDoc: ProjectDocument = { ...doc, id: Date.now(), date: doc.date || getISODateTimeString(), ...approvalFields };
-        const newDocuments = [...(projectData.documents || []), newDoc];
-        const updatedProject = { ...projectData, documents: newDocuments } as Project;
-        setProjectData(updatedProject);
-        onPartialUpdate(updatedProject);
-        setIsDocModalOpen(false);
+    const handleSaveDocument = async (doc: Omit<ProjectDocument, 'id'>, file: File | null) => {
+        if (!file) {
+            setInfoModal({ title: t('error'), message: t('selectFileAndDesc') });
+            return;
+        }
+        if (await runChange(projectId => registers.uploadDocument(projectId, doc, file))) setIsDocModalOpen(false);
     };
     const handleEditDocument = (doc: ProjectDocument) => {
         alert(t('editNotImplemented'));
     };
-    const handleDeleteDocument = (id: number) => {
-        if (window.confirm(t('confirmDocDelete'))) {
-            const newDocuments = (projectData.documents || []).filter(d => d.id !== id);
-            const updatedProject = { ...projectData, documents: newDocuments } as Project;
-            setProjectData(updatedProject);
-            onPartialUpdate(updatedProject);
-        }
+    const handleDeleteDocument = (id: string) => {
+        if (window.confirm(t('confirmDocDelete'))) void runChange(projectId => registers.deleteDocument(projectId, id));
     };
-    const handleApproveDocument = (id: number, comment?: string) => {
-        handleTabItemApproval('documents', 'documents', id, 'Approved', comment);
-    };
-    const handleRejectDocument = (id: number, comment?: string) => {
-        handleTabItemApproval('documents', 'documents', id, 'Rejected', comment);
-    };
+    const handleApproveDocument = (id: string, comment?: string) => void decide('document')(id, true, comment);
+    const handleRejectDocument = (id: string, comment?: string) => void decide('document')(id, false, comment);
+    const handleDownloadDocument = (doc: ProjectDocument) => void runChange(() => registers.downloadDocument(doc));
 
     const handleSaveSettings = (settings: Partial<Project>) => {
         const updatedProject = {
@@ -716,16 +577,9 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                     risks: getFilteredTabItems(projectData.risks || [], 'risks'), 
                     users: users,
                     project: projectData as Project,
-                    onUpdateRisks: (newRisks: ProjectRisk[]) => {
-                        const updatedProject = { ...projectData, risks: newRisks } as Project;
-                        setProjectData(updatedProject);
-                        onPartialUpdate(updatedProject);
-                    },
-                    onUpdateRiskDefinitions: (newDefs) => {
-                        const updatedProject = { ...projectData, riskDefinitions: newDefs } as Project;
-                        setProjectData(updatedProject);
-                        onPartialUpdate(updatedProject);
-                    },
+                    onUpdateRisks: handleReplaceRisks,
+                    onUpdateRiskDefinitions: (newDefs) => void runChange(projectId => registers.saveRiskDefinitions(projectId, newDefs)),
+                    onUpdateRiskMatrixColors: (colors) => void runChange(projectId => registers.saveRiskMatrixColors(projectId, colors)),
                     onEdit: handleEditRisk, 
                     onDelete: handleDeleteRisk,
                     isPMOrAdmin: isPMOrOwnerOrAdmin,
@@ -745,16 +599,8 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                     stakeholders: getFilteredTabItems(projectData.stakeholders || [], 'stakeholders'), 
                     users: users,
                     project: projectData as Project,
-                    onUpdateStakeholders: (newStakeholders: ProjectStakeholder[]) => {
-                        const updatedProject = { ...projectData, stakeholders: newStakeholders } as Project;
-                        setProjectData(updatedProject);
-                        onPartialUpdate(updatedProject);
-                    },
-                    onUpdateStakeholderStrategies: (newStrategies) => {
-                        const updatedProject = { ...projectData, stakeholderStrategies: newStrategies } as Project;
-                        setProjectData(updatedProject);
-                        onPartialUpdate(updatedProject);
-                    },
+                    onUpdateStakeholders: handleReplaceStakeholders,
+                    onUpdateStakeholderStrategies: (newStrategies) => void runChange(projectId => registers.saveStakeholderStrategies(projectId, newStrategies)),
                     onEdit: handleEditStakeholder, 
                     onDelete: handleDeleteStakeholder,
                     isPMOrAdmin: isPMOrOwnerOrAdmin,
@@ -803,10 +649,15 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                     users: users,
                     project: projectData as Project,
                     onUpdateDocuments: (newDocs: ProjectDocument[]) => {
-                        const updatedProject = { ...projectData, documents: newDocs } as Project;
-                        setProjectData(updatedProject);
-                        onPartialUpdate(updatedProject);
+                        // Only the AI notes can change here; they are kept next to the document (the backend does not hold them).
+                        for (const doc of newDocs) {
+                            const before = (projectData.documents || []).find(d => d.id === doc.id);
+                            if (before && (before.aiSummary !== doc.aiSummary || before.aiRelevance !== doc.aiRelevance || before.aiRelevanceReason !== doc.aiRelevanceReason)) {
+                                registers.setDocumentNotes(projectData.id!, doc.id, { aiSummary: doc.aiSummary, aiRelevance: doc.aiRelevance, aiRelevanceReason: doc.aiRelevanceReason });
+                            }
+                        }
                     },
+                    onDownload: handleDownloadDocument,
                     onEdit: handleEditDocument, 
                     onDelete: handleDeleteDocument,
                     isPMOrAdmin: isPMOrOwnerOrAdmin,
@@ -1072,7 +923,8 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                 onClose: () => setIsStakeholderModalOpen(false),
                 onSave: handleSaveStakeholder,
                 stakeholder: editingStakeholder,
-                isEditing: !!(editingStakeholder && 'id' in editingStakeholder)
+                isEditing: !!(editingStakeholder && 'id' in editingStakeholder),
+                strategies: projectData.stakeholderStrategies
             }),
             isStatusModalOpen && React.createElement(StatusUpdateModal, {
                 isOpen: isStatusModalOpen,

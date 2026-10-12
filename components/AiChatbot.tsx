@@ -1029,7 +1029,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
     } else if (detTab === 'risk') {
       if (!detRiskDesc.trim()) return;
       const newRisk: ProjectRisk = {
-        id: Date.now(),
+        id: String(Date.now()),
         description: detRiskDesc,
         probability: detRiskProb,
         impact: detRiskImpact,
@@ -1043,7 +1043,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
     } else if (detTab === 'status') {
       if (!detStatusDesc.trim()) return;
       const newStatus: ProjectStatusUpdate = {
-        id: Date.now(),
+        id: String(Date.now()),
         description: detStatusDesc,
         date: detStatusDate
       };
@@ -1053,7 +1053,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
     } else if (detTab === 'delay') {
       if (!detDelayDesc.trim()) return;
       const newDelay: ProjectDelayReason = {
-        id: Date.now(),
+        id: String(Date.now()),
         description: detDelayDesc,
         date: detDelayDate
       };

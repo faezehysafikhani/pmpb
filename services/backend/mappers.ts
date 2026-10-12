@@ -113,20 +113,27 @@ export const backendTypeOf = (type: ProjectType): number => (type === 'agile' ? 
  */
 export const PROJECT_CORE_KEYS: (keyof Project)[] = [
   'id', 'type', 'approvalStatus', 'name', 'code', 'cost', 'ownerId', 'projectManagerId', 'startDate', 'endDate', 'status',
-  'owningUnit', 'description', 'goal', 'requirements', 'constraintsAndAssumptions', 'calendarId', 'teamMemberIds'
+  'owningUnit', 'description', 'goal', 'requirements', 'constraintsAndAssumptions', 'calendarId', 'teamMemberIds',
+  // the registers (phase 3)
+  'risks', 'stakeholders', 'statusUpdates', 'delayReasons', 'documents', 'riskDefinitions', 'riskMatrixColors', 'stakeholderStrategies'
 ];
 
 export function toUiProject(
   project: BackendProject,
   unitPathById: Map<string, string>,
   memberIds: string[],
-  extras: Partial<Project> | undefined
+  extras: Partial<Project> | undefined,
+  registers?: Partial<Project>
 ): Project {
   // The backend keeps constraints and assumptions apart; the charter screen has one box for both.
   const constraintsAndAssumptions = [project.constraints, project.assumptions].filter(Boolean).join('\n');
   return {
     ...defaultProjectExtras(),
     ...(extras ?? {}),
+    // Whatever an older build kept in this browser about the registers is never used: the backend holds them now.
+    risks: [], stakeholders: [], statusUpdates: [], delayReasons: [], documents: [],
+    riskDefinitions: undefined, riskMatrixColors: undefined, stakeholderStrategies: undefined,
+    ...(registers ?? {}),
     id: project.id,
     type: project.type === BackendProjectType.Agile ? 'agile' : 'waterfall',
     approvalStatus: UI_APPROVAL_BY_BACKEND[project.approvalStatus] ?? 'Draft',

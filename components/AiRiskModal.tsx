@@ -289,7 +289,7 @@ Each risk must contain:
     const actorName = currentUserObj ? (currentUserObj.name ? `${currentUserObj.name} (${currentUserObj.username})` : currentUserObj.username) : (isFa ? 'کاربر' : 'User');
 
     const newRisks: ProjectRisk[] = generatedRisks.map((r, idx) => ({
-      id: Date.now() + idx + 1,
+      id: String(Date.now() + idx + 1),
       description: r.description,
       probability: r.probability as any,
       impact: r.impact as any,

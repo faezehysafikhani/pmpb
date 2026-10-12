@@ -25,7 +25,7 @@ import {
     resolveWorkflowApproverId,
     getEffectiveProjectWorkflowStages
 } from './types';
-import { pickCalendar, getISODateString, getISODateTimeString, calculateScheduleTreeAndProgress, isActionVisibleToUser, toPersianDigits, generateRecurringOccurrences } from './utils';
+import { enrichProjectWithProgress, pickCalendar, getISODateString, getISODateTimeString, calculateScheduleTreeAndProgress, isActionVisibleToUser, toPersianDigits, generateRecurringOccurrences } from './utils';
 import { LocalizationProvider, LocalizationContext, ThemeProvider } from './context';
 import { LoginPage, MainMenu, SettingsPage } from './pages/CorePages';
 import { UserManagementPage, TaskCenterPage, ApprovalCenterPage } from './pages/UserAndTaskPages';
@@ -527,6 +527,17 @@ const AppContent = () => {
         setProjects(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
     };
 
+    /** The AI assistant hands back a whole project: its other parts stay as they were, what it added to the registers is saved on the backend. */
+    const handleAssistantProjectUpdate = (updatedProject: Project) => {
+        const before = projects.find(p => p.id === updatedProject.id);
+        setProjects(prev => prev.map(p => p.id === updatedProject.id ? { ...updatedProject, risks: p.risks, stakeholders: p.stakeholders, statusUpdates: p.statusUpdates, delayReasons: p.delayReasons, documents: p.documents } : p));
+        if (!before) return;
+        const shown = enrichProjectWithProgress(updatedProject, calendars);
+        void projectsState.syncRegisters(before.id, before, updatedProject, { planned: shown.plannedProgress, actual: shown.actualProgress }).then(outcome => {
+            if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
+        });
+    };
+
     const handleDeleteProject = async (projectId: string) => {
         const outcome = await projectsState.deleteProject(projectId);
         if (!outcome.ok) {
@@ -695,7 +706,7 @@ const AppContent = () => {
         setInfoModal({ title: t('submitForApproval'), message: t('progressUpdated') });
     };
 
-    const handleUpdateRiskResponseStatus = (projectId: string, riskId: number, status: string, comment?: string) => {
+    const handleUpdateRiskResponseStatus = (projectId: string, riskId: string, status: string, comment?: string) => {
         setProjects(prev => prev.map(p => {
             if (p.id !== projectId) return p;
             const stages = getEffectiveProjectWorkflowStages('risks', p, dynamicWorkflowSettings);
@@ -718,6 +729,8 @@ const AppContent = () => {
                     const baseHistory = r.verificationHistory || [];
 
                     if (!isWorkflowEnabled) {
+                        // No verification round: the new response status is the risk's state on the backend straight away.
+                        void projectsState.setRiskResponseStatus(projectId, riskId, status as WorkStatus);
                         const autoApproveRecord: ProjectApprovalRecord = {
                             action: 'Approved',
                             date: getISODateTimeString(),
@@ -1281,7 +1294,7 @@ const AppContent = () => {
                     owningUnits={owningUnits}
                     projectStatuses={projectStatuses}
                     onAddProject={(newProj) => handleSaveProject(newProj, 'sent')}
-                    onUpdateProject={(updatedProj) => handlePartialUpdateProject(updatedProj)}
+                    onUpdateProject={handleAssistantProjectUpdate}
                     onAddAction={(newAct) => handleSaveAction(newAct)}
                     onNavigate={handleNavigate}
                     currentUser={currentUser}

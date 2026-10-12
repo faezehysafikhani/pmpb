@@ -1518,15 +1518,23 @@ ${JSON.stringify(dbSummary.users || [], null, 2)}
       if (req.headers["authorization"]) headers["Authorization"] = String(req.headers["authorization"]);
       if (req.headers["content-type"]) headers["Content-Type"] = String(req.headers["content-type"]);
       if (req.headers["accept-language"]) headers["Accept-Language"] = String(req.headers["accept-language"]);
-      const hasBody = !["GET", "HEAD", "DELETE"].includes(req.method) && req.body && Object.keys(req.body).length > 0;
-      const backendResponse = await fetch(target, {
-        method: req.method,
-        headers,
-        body: hasBody ? JSON.stringify(req.body) : undefined
-      });
+      // JSON bodies were already parsed above; anything else (a multipart document upload, for instance) is passed through byte for byte.
+      let body: BodyInit | undefined;
+      if (!["GET", "HEAD"].includes(req.method)) {
+        if (String(req.headers["content-type"] || "").includes("application/json")) {
+          if (req.body && Object.keys(req.body).length > 0) body = JSON.stringify(req.body);
+        } else {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) chunks.push(chunk as Buffer);
+          if (chunks.length) body = Buffer.concat(chunks);
+        }
+      }
+      const backendResponse = await fetch(target, { method: req.method, headers, body });
       res.status(backendResponse.status);
       const contentType = backendResponse.headers.get("content-type");
       if (contentType) res.setHeader("Content-Type", contentType);
+      const disposition = backendResponse.headers.get("content-disposition");
+      if (disposition) res.setHeader("Content-Disposition", disposition);
       res.send(Buffer.from(await backendResponse.arrayBuffer()));
     } catch (err: any) {
       res.status(502).json({ title: "backend.unreachable", detail: `The backend (${BACKEND_TARGET}) could not be reached: ${err?.message || err}` });
