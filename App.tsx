@@ -22,7 +22,7 @@ import {
     resolveWorkflowApproverId,
     getEffectiveProjectWorkflowStages
 } from './types';
-import { getISODateString, getISODateTimeString, calculateScheduleTreeAndProgress, isProjectVisibleToUser, isActionVisibleToUser, toPersianDigits, generateRecurringOccurrences } from './utils';
+import { pickCalendar, getISODateString, getISODateTimeString, calculateScheduleTreeAndProgress, isProjectVisibleToUser, isActionVisibleToUser, toPersianDigits, generateRecurringOccurrences } from './utils';
 import { LocalizationProvider, LocalizationContext, ThemeProvider } from './context';
 import { LoginPage, MainMenu, SettingsPage } from './pages/CorePages';
 import { UserManagementPage, TaskCenterPage, ApprovalCenterPage } from './pages/UserAndTaskPages';
@@ -260,7 +260,7 @@ const AppContent = () => {
         const activityMap = new Map<string, ProjectActivity>();
         projects.forEach(p => {
             if (p.schedule && p.schedule.length > 0) {
-                const projectCalendar = calendars.find(c => c.id === p.calendarId) || calendars.find(c => c.isDefault);
+                const projectCalendar = pickCalendar(calendars, p.calendarId);
                 if (!projectCalendar) return; // the calendars have not been loaded yet
                 const { rootNode } = calculateScheduleTreeAndProgress(p, projectCalendar);
 

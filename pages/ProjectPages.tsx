@@ -15,7 +15,7 @@ import {
     PlannedProgressType, ScheduleSnapshot, VisibilitySettings, WorkflowEntityType, DEFAULT_DYNAMIC_WORKFLOW_SETTINGS, resolveWorkflowApproverId, DynamicWorkflowSettings,
     ProjectApprovalRecord, getEffectiveProjectWorkflowStages, isProjectTabCustomWorkflow, ProjectContract, ProjectInvoice
 } from '../types';
-import { getISODateString, getISODateTimeString, enrichProjectWithProgress, calculateScheduleTreeAndProgress, formatDate, toPersianDigits, isProjectVisibleToUser, isActionVisibleToUser, getUnitLevel1And2, exportDashboardToLandscapePdf } from '../utils';
+import { pickCalendar, getISODateString, getISODateTimeString, enrichProjectWithProgress, calculateScheduleTreeAndProgress, formatDate, toPersianDigits, isProjectVisibleToUser, isActionVisibleToUser, getUnitLevel1And2, exportDashboardToLandscapePdf } from '../utils';
 import { 
     OrgChartModal,
     ProjectHistoryModal,
@@ -124,7 +124,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
         weightingType: 'manual',
         plannedProgressType: 'continuous',
         scheduleSnapshots: [],
-        calendarId: calendars.find(c => c.isDefault)?.id || 1,
+        calendarId: (calendars.find(c => c.isDefault) || calendars[0])?.id,
         startDate: getISODateString(),
         endDate: getISODateString(),
         ownerId: currentUser?.id || 1,
@@ -171,7 +171,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
     }, [initialTab]);
 
     const projectCalendar = useMemo(() => 
-        calendars.find(c => c.id === projectData.calendarId) || calendars.find(c => c.isDefault)!, 
+        pickCalendar(calendars, projectData.calendarId)!, 
         [calendars, projectData.calendarId]
     );
 
@@ -2257,7 +2257,7 @@ export const ProjectSpecificDashboardPage = ({ users, calendars, onNavigate, pro
 
     const { rootNode } = useMemo(() => {
         if (project.type === 'waterfall') {
-            const projectCalendar = calendars.find(c => c.id === project.calendarId) || calendars.find(c => c.isDefault)!;
+            const projectCalendar = pickCalendar(calendars, project.calendarId)!;
             return calculateScheduleTreeAndProgress(project, projectCalendar, project.weightingType, project.plannedProgressType);
         }
         return { rootNode: null };
@@ -2430,7 +2430,7 @@ export const ProjectSpecificDashboardPage = ({ users, calendars, onNavigate, pro
                 React.createElement(SCurveChartInline, { 
                     project: project, 
                     activities: project.schedule || [], 
-                    calendar: calendars.find(c => c.id === project.calendarId) || calendars.find(c => c.isDefault)! 
+                    calendar: pickCalendar(calendars, project.calendarId)! 
                 })
             ),
             // Burn-up/down Chart (Agile)

@@ -367,6 +367,10 @@ export function getOfficialHolidayReason(date: Date): string | null {
   return null;
 }
 
+/** The calendar a project (or action) uses: its own, else the default one, else the first one there is. Undefined only when there are no calendars at all. */
+export const pickCalendar = (calendars: Calendar[], calendarId?: string | number | null): Calendar | undefined =>
+    calendars.find(c => String(c.id) === String(calendarId)) || calendars.find(c => c.isDefault) || calendars[0];
+
 const isHoliday = (date: Date, calendar: Calendar): boolean => {
     const dayOfWeek = date.getDay();
     if (!calendar.workingDays.includes(dayOfWeek)) {
@@ -798,8 +802,8 @@ export const enrichProjectWithProgress = (project: Project, calendars: Calendar[
     let actualProgress = 0;
     const enrichedData: Partial<EnrichedProject> = {}; // Use partial type
 
-    if (project.type === 'waterfall' && calendars.length > 0 && project.schedule && project.schedule.length > 0) {
-        const projectCalendar = calendars.find(c => c.id === project.calendarId) || calendars.find(c => c.isDefault)!;
+    if (project.type === 'waterfall' && calendars.length > 0 && pickCalendar(calendars, project.calendarId) && project.schedule && project.schedule.length > 0) {
+        const projectCalendar = pickCalendar(calendars, project.calendarId);
         const { rootNode } = calculateScheduleTreeAndProgress(project, projectCalendar, project.weightingType, project.plannedProgressType);
         actualProgress = rootNode?.actualProgress || 0;
         // Overwrite the simple time-based planned progress with the more accurate schedule-based one.

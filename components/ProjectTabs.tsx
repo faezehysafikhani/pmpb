@@ -10,7 +10,7 @@ import {
     Calendar, ProjectApprovalRecord, ProjectContractPermissions, ProjectInvoicePermissions,
     ProjectContract, ProjectInvoice
 } from '../types';
-import { getISODateString, calculateScheduleTreeAndProgress, formatDate, toPersianDigits, exportDashboardToLandscapePdf } from '../utils';
+import { pickCalendar, getISODateString, calculateScheduleTreeAndProgress, formatDate, toPersianDigits, exportDashboardToLandscapePdf } from '../utils';
 import { ActivityDetailsModal, GanttChartModal, WBSModal, ProgressChartModal, KanbanTaskModal, KanbanHistoryModal, TabItemHistoryModal, ApprovalCommentModal, ActionModal, AgileProgressChartModal } from './Modals';
 import { ProgressBar } from './Indicators';
 import { AiWbsModal } from './AiWbsModal';
@@ -2074,7 +2074,7 @@ export const ProjectScheduleTab = ({ project, users, calendars, onUpdateSchedule
     }, [users, project?.teamMemberIds]);
     
     const projectCalendar = useMemo(() => {
-        return calendars.find(c => c.id === project.calendarId) || calendars.find(c => c.isDefault)!;
+        return pickCalendar(calendars, project.calendarId)!;
     }, [calendars, project.calendarId]);
     
     const processedSchedule = useMemo(() => {
