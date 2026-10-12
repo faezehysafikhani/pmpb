@@ -309,6 +309,8 @@ export interface ProjectActivity {
 export type TaskPriority = 'Low' | 'Medium' | 'High';
 export type KanbanStatus = 'To-Do' | 'Doing' | 'Done';
 export type WorkStatus = 'Planning' | 'In Progress' | 'On Hold' | 'Completed';
+/** The work statuses the backend moves a project between (Archived is reached only by archiving). */
+export const PROJECT_WORK_STATUSES: WorkStatus[] = ['Planning', 'In Progress', 'On Hold', 'Completed'];
 
 export interface KanbanTask {
   id: number;

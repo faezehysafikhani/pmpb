@@ -41,7 +41,7 @@ Plan and the list of backend additions: `docs/ui-integration/PLAN.md` in the bac
 | Work calendars (+ official holidays, work hours) | **connected** |
 | Projects: list, create, edit charter, team, work status, send for approval, delete (guarded), portfolio visibility | **connected** (phase 2) |
 | Risks (+ response status, matrix colours, level definitions), stakeholders (+ strategy wording), status reports, delay reasons, documents (real upload / download), their approval via the Workflow backend | **connected** (phase 3) |
-| Project statuses list (reference tables page) | still local - needs a decision (the backend has a fixed status set) |
+| Project statuses list (reference tables page) | the backend's fixed set, shown read-only (a custom status could not be saved) |
 | Schedule, agile, actions, contracts, strategy, knowledge, dashboards, reports | still the old local/mock data (phases 4-8) |
 | Approval centre (register items) | decisions go to the backend workflow; delegation, stage editor and the full centre are phase 7 |
 

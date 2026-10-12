@@ -17,6 +17,7 @@ import {
     UserRole,
     ActionItem,
     WorkStatus,
+    PROJECT_WORK_STATUSES,
     KnowledgeDocument,
     Delegation,
     VisibilitySettings,
@@ -128,14 +129,8 @@ const AppContent = () => {
         }
     });
     
-    const [projectStatuses, setProjectStatuses] = useState<string[]>(() => {
-        try {
-            const saved = localStorage.getItem('pms_project_statuses');
-            return saved ? JSON.parse(saved) : ['Planning', 'In Progress', 'On Hold', 'Completed'];
-        } catch (e) {
-            return ['Planning', 'In Progress', 'On Hold', 'Completed'];
-        }
-    });
+    // The work statuses are the backend's fixed set (it moves a project between them); they are not editable here.
+    const projectStatuses: string[] = PROJECT_WORK_STATUSES;
     
     const [delegations, setDelegations] = useState<Delegation[]>(() => {
         try {
@@ -225,7 +220,6 @@ const AppContent = () => {
     useEffect(() => { localStorage.setItem('pms_alignments', JSON.stringify(alignments)); }, [alignments]);
     useEffect(() => { localStorage.setItem('pms_progress_updates', JSON.stringify(progressUpdates)); }, [progressUpdates]);
     useEffect(() => { localStorage.setItem('pms_knowledge_docs', JSON.stringify(knowledgeDocuments)); }, [knowledgeDocuments]);
-    useEffect(() => { localStorage.setItem('pms_project_statuses', JSON.stringify(projectStatuses)); }, [projectStatuses]);
     useEffect(() => { localStorage.setItem('pms_delegations', JSON.stringify(delegations)); }, [delegations]);
     useEffect(() => { localStorage.setItem('pms_visibility_settings', JSON.stringify(visibilitySettings)); }, [visibilitySettings]);
     useEffect(() => { localStorage.setItem('pms_project_workflow_enabled', String(isProjectWorkflowEnabled)); }, [isProjectWorkflowEnabled]);
@@ -1235,7 +1229,7 @@ const AppContent = () => {
             case 'color_format':
                 return <ColorFormatPage onNavigate={handleNavigate} />;
             case 'reference_tables':
-                return <ReferenceTablesPage projectStatuses={projectStatuses} setProjectStatuses={setProjectStatuses} onNavigate={handleNavigate} />;
+                return <ReferenceTablesPage projectStatuses={projectStatuses} onNavigate={handleNavigate} />;
             case 'dashboard_hub':
             case 'dashboard':
             case 'action_dashboard':

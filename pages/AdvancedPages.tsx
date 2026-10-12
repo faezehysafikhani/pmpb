@@ -346,11 +346,9 @@ interface FlatWbsUnitNode {
 
 export const ReferenceTablesPage = ({
     projectStatuses,
-    setProjectStatuses,
     onNavigate
 }: {
     projectStatuses: string[];
-    setProjectStatuses: React.Dispatch<React.SetStateAction<string[]>>;
     onNavigate: (page: string) => void;
 }) => {
     const { t, language } = useContext(LocalizationContext);
@@ -390,8 +388,6 @@ export const ReferenceTablesPage = ({
     const [editingUnitName, setEditingUnitName] = useState('');
 
     // Project Statuses State
-    const [newStatus, setNewStatus] = useState('');
-    const [editingStatus, setEditingStatus] = useState<{ original: string; current: string } | null>(null);
 
     const workStatusTranslations: Record<string, TranslationKey> = { 
         'Planning': 'planning', 
@@ -470,33 +466,6 @@ export const ReferenceTablesPage = ({
         }
     };
 
-    // Project Statuses Handlers
-    const handleAddStatus = (e: React.FormEvent) => {
-        e.preventDefault();
-        const trimmedStatus = newStatus.trim();
-        if (trimmedStatus && !projectStatuses.includes(trimmedStatus)) {
-            setProjectStatuses(prev => [...prev, trimmedStatus]);
-            setNewStatus('');
-        }
-    };
-
-    const handleDeleteStatus = (status: string) => {
-        const translatedStatus = t(workStatusTranslations[status] || status as any);
-        if (window.confirm(`${t('confirmUserDelete')} "${translatedStatus}"?`)) {
-            setProjectStatuses(prev => prev.filter(s => s !== status));
-        }
-    };
-    
-    const handleUpdateStatus = () => {
-        if (editingStatus && editingStatus.current && !projectStatuses.includes(editingStatus.current)) {
-            setProjectStatuses(prev => prev.map(s => s === editingStatus.original ? editingStatus.current : s));
-            setEditingStatus(null);
-        } else if (editingStatus && editingStatus.current && projectStatuses.includes(editingStatus.current) && editingStatus.current !== editingStatus.original) {
-            alert(t('usernameExists'));
-        } else {
-            setEditingStatus(null);
-        }
-    };
     
     return (
         React.createElement("div", { className: "content-container" },
@@ -729,44 +698,17 @@ export const ReferenceTablesPage = ({
                     )
                 ),
 
-                // Project Statuses Section
+                // Project Statuses Section: the backend's fixed set, shown for reference only
                 React.createElement("div", { className: "form-section", style: { marginTop: 0 } },
                     React.createElement("h3", null, t('projectStatus')),
-                    React.createElement("form", { onSubmit: handleAddStatus, className: "inline-form" },
-                        React.createElement("input", {
-                            type: "text",
-                            value: newStatus,
-                            onChange: (e) => setNewStatus(e.target.value),
-                            placeholder: `${t('add')} ${t('projectStatus')}...`,
-                            "aria-label": `${t('add')} ${t('projectStatus')}`
-                        }),
-                        React.createElement("button", { type: "submit", className: "action-button" }, t('add'))
-                    ),
+                    React.createElement("p", { style: { color: 'var(--text-muted, #64748b)', fontSize: '0.85rem', margin: '0 0 0.5rem' } },
+                        language === 'fa'
+                            ? 'وضعیت‌های کاری پروژه توسط سامانه تعریف شده‌اند و قابل ویرایش نیستند.'
+                            : 'Project work statuses are defined by the system and cannot be edited.'),
                     React.createElement("ul", { className: "team-list" },
                         projectStatuses.map(status => (
                             React.createElement("li", { key: status },
-                                editingStatus?.original === status ? (
-                                    React.createElement("div", { className: "inline-form", style: { width: '100%', marginBottom: 0 } },
-                                        React.createElement("input", {
-                                            type: "text",
-                                            value: editingStatus.current,
-                                            onChange: (e) => setEditingStatus({ ...editingStatus, current: e.target.value }),
-                                            autoFocus: true,
-                                            onKeyDown: (e) => e.key === 'Enter' && handleUpdateStatus(),
-                                            onBlur: () => setEditingStatus(null)
-                                        }),
-                                        React.createElement("button", { onClick: handleUpdateStatus, className: "action-icon", "aria-label": t('save') }, React.createElement("span", { className: "material-symbols-outlined" }, "save")),
-                                        React.createElement("button", { onClick: () => setEditingStatus(null), className: "action-icon", "aria-label": t('cancel') }, React.createElement("span", { className: "material-symbols-outlined" }, "cancel"))
-                                    )
-                                ) : (
-                                    React.createElement(Fragment, null,
-                                        React.createElement("span", null, t(workStatusTranslations[status] || status as any)),
-                                        React.createElement("div", null,
-                                            React.createElement("button", { onClick: () => setEditingStatus({ original: status, current: status }), className: "action-icon edit", "aria-label": t('edit') }, React.createElement("span", { className: "material-symbols-outlined" }, "edit")),
-                                            React.createElement("button", { onClick: () => handleDeleteStatus(status), className: "action-icon delete", "aria-label": t('delete') }, React.createElement("span", { className: "material-symbols-outlined" }, "delete"))
-                                        )
-                                    )
-                                )
+                                React.createElement("span", null, t(workStatusTranslations[status] || status as any))
                             )
                         ))
                     )
