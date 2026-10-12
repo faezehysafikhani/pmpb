@@ -12,12 +12,14 @@ export interface Delegation {
 }
 
 export interface ScheduleSnapshot {
-  id: number;
+  id: string;
   name: string;
   date: string; // ISO string for date and time
-  schedule: ProjectActivity[];
+  /** The copy's activities; read from the backend when the copy is opened (the list does not carry them). */
+  schedule?: ProjectActivity[];
   type: 'Baseline' | 'Progress Information';
   actualProgress?: number;
+  plannedProgress?: number;
 }
 
 export type PlannedProgressType = 'continuous' | 'zero-hundred';
@@ -284,6 +286,9 @@ export interface ProjectActivity {
   importance?: 'Low' | 'Medium' | 'High';
   complexity?: 'Low' | 'Medium' | 'High';
   weight: number;
+  /** The weight typed on the activity (kept even while the project weighs by something else). */
+  manualWeight?: number;
+  isMilestone?: boolean;
   assignedToId: string | null;
   actualProgress: number; // percentage 0-100
   parentId: string | null;
@@ -313,7 +318,7 @@ export type WorkStatus = 'Planning' | 'In Progress' | 'On Hold' | 'Completed';
 export const PROJECT_WORK_STATUSES: WorkStatus[] = ['Planning', 'In Progress', 'On Hold', 'Completed'];
 
 export interface KanbanTask {
-  id: number;
+  id: string;
   description: string;
   dueDate: string;
   priority: TaskPriority;
@@ -400,6 +405,10 @@ export interface Project {
   weightingType?: 'manual' | 'time-based' | 'cost-based' | 'complexity-based' | 'combined';
   plannedProgressType?: PlannedProgressType;
   scheduleSnapshots?: ScheduleSnapshot[];
+  /** How far the project has got, as the backend works it out (planned from the schedule or the dates, actual from the activities / tasks). */
+  progressFigures?: ProjectProgressFigures;
+  /** What the backend calculated about the whole schedule (warnings, critical path, overall dates). */
+  scheduleInfo?: { projectStart: string; projectFinish: string; projectDurationDays?: number; warnings: string[]; criticalPath: string[] };
   timeWeightFactor?: number;
   costWeightFactor?: number;
   complexityWeightFactor?: number;
@@ -475,6 +484,16 @@ export interface ActionItem {
   approvalHistory?: ProjectApprovalRecord[];
 }
 
+export interface ProjectProgressFigures {
+  plannedProgress: number;
+  actualProgress: number;
+  performance: number;
+  totalTasks?: number;
+  todoTasks?: number;
+  doingTasks?: number;
+  doneTasks?: number;
+}
+
 export interface EnrichedProject extends Project {
     plannedProgress: number;
     actualProgress: number;
@@ -489,10 +508,10 @@ export interface EnrichedProject extends Project {
 export type ProgressUpdateStatus = 'Pending Approval' | 'Approved' | 'Rejected';
 
 export interface ProgressUpdate {
-    id: number;
+    id: string;
     projectId?: string;
     activityId?: string;
-    taskId?: number;
+    taskId?: string;
     actionId?: number;
     riskId?: number;
     submittedBy: string;

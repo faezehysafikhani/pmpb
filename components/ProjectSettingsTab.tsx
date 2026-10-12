@@ -5,7 +5,7 @@ import {
     DEFAULT_DYNAMIC_WORKFLOW_SETTINGS, ProjectContractPermissions, ProjectInvoicePermissions,
     Calendar, ProjectActivity
 } from '../types';
-import { formatDate, toPersianDigits, calculateSCurveData } from '../utils';
+import { formatDate, toPersianDigits } from '../utils';
 import { DynamicWorkflowSettingsEditor } from './DynamicWorkflowSettingsEditor';
 
 export const ProjectSettingsTab = ({ 
@@ -28,7 +28,7 @@ export const ProjectSettingsTab = ({
     onSaveSettings: (settings: Partial<Project>) => void,
     scheduleSnapshots: ScheduleSnapshot[],
     onSaveSnapshot: (name: string, type: 'Baseline' | 'Progress Information') => void,
-    onDeleteSnapshot: (id: number) => void,
+    onDeleteSnapshot: (id: string) => void,
     onViewSnapshot: (snapshot: ScheduleSnapshot) => void,
     currentUser?: User | null,
     users?: User[],
@@ -63,10 +63,8 @@ export const ProjectSettingsTab = ({
     const [snapshotName, setSnapshotName] = useState('');
     const [snapshotType, setSnapshotType] = useState<'Baseline' | 'Progress Information'>('Baseline');
 
-    const sCurveDates = useMemo(() => {
-        const points = calculateSCurveData(project, activities || project.schedule || [], calendar, language);
-        return points.map(p => p.dateLabel);
-    }, [project, activities, calendar, language]);
+    // A progress record is always taken for today (the backend dates it); the name is only a label.
+    const sCurveDates: string[] = [];
     const [localWeightingType, setLocalWeightingType] = useState(project.weightingType || 'manual');
     const [localPlannedProgressType, setLocalPlannedProgressType] = useState(project.plannedProgressType || 'continuous');
     const [timeWeightFactor, setTimeWeightFactor] = useState(project.timeWeightFactor || 34);
@@ -646,7 +644,7 @@ export const ProjectSettingsTab = ({
             // Accordion Body
             expandedSections.performance && React.createElement("div", { style: { padding: '1.25rem' } },
                 React.createElement("div", { className: "inline-form snapshot-form", style: { display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' } },
-                    snapshotType === 'Progress Information' ? (
+                    false ? (
                         React.createElement("select", {
                             value: snapshotName,
                             onChange: (e: ChangeEvent<HTMLSelectElement>) => setSnapshotName(e.target.value),
@@ -680,7 +678,7 @@ export const ProjectSettingsTab = ({
                         onChange: (e: ChangeEvent<HTMLSelectElement>) => {
                             const newType = e.target.value as any;
                             setSnapshotType(newType);
-                            setSnapshotName('');
+                            setSnapshotName(newType === 'Progress Information' ? formatDate(new Date(), language) : '');
                         }
                     },
                         React.createElement("option", { value: "Baseline" }, t('baseline')),

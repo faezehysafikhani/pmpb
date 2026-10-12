@@ -4,7 +4,7 @@ import React, { useState, useContext, useEffect, useMemo } from 'react';
 import { initialStrategies, initialAlignments, initialKnowledgeDocuments, initialActions, initialDelegations } from './data';
 import { AuthProvider, useAuth } from './directory/AuthContext';
 import { DirectoryProvider, useDirectory } from './directory/DirectoryContext';
-import { ProjectsProvider, useProjects } from './directory/ProjectsContext';
+import { ProjectsProvider, useProjects, localPartsOf } from './directory/ProjectsContext';
 import { projectErrorText } from './services/backend/errors';
 import type { ProjectOutcome } from './directory/ProjectsContext';
 import { toUiUser } from './services/backend/mappers';
@@ -107,16 +107,20 @@ const AppContent = () => {
         }
     });
 
-    const [progressUpdates, setProgressUpdates] = useState<ProgressUpdate[]>(() => {
+    // Progress reports on activities and status requests on agile tasks belong to the backend (with their approval); the ones that are not
+    // connected yet (action status, risk response, charter changes) are still kept in this browser.
+    const [localProgressUpdates, setProgressUpdates] = useState<ProgressUpdate[]>(() => {
         try {
             const saved = localStorage.getItem('pms_progress_updates');
-            return saved ? JSON.parse(saved) : [];
+            const kept: ProgressUpdate[] = saved ? JSON.parse(saved) : [];
+            return kept.filter(up => !up.activityId && !up.taskId).map(up => ({ ...up, id: String(up.id) }));
         } catch (e) {
             console.error("Failed to parse progress updates from localStorage", e);
             localStorage.removeItem('pms_progress_updates');
             return [];
         }
     });
+    const progressUpdates = useMemo(() => [...projectsState.progressUpdates, ...localProgressUpdates], [projectsState.progressUpdates, localProgressUpdates]);
 
     const [knowledgeDocuments, setKnowledgeDocuments] = useState<KnowledgeDocument[]>(() => {
         try {
@@ -218,7 +222,7 @@ const AppContent = () => {
     useEffect(() => { localStorage.setItem('pms_actions', JSON.stringify(actions)); }, [actions]);
     useEffect(() => { localStorage.setItem('pms_strategies', JSON.stringify(strategies)); }, [strategies]);
     useEffect(() => { localStorage.setItem('pms_alignments', JSON.stringify(alignments)); }, [alignments]);
-    useEffect(() => { localStorage.setItem('pms_progress_updates', JSON.stringify(progressUpdates)); }, [progressUpdates]);
+    useEffect(() => { localStorage.setItem('pms_progress_updates', JSON.stringify(localProgressUpdates)); }, [localProgressUpdates]);
     useEffect(() => { localStorage.setItem('pms_knowledge_docs', JSON.stringify(knowledgeDocuments)); }, [knowledgeDocuments]);
     useEffect(() => { localStorage.setItem('pms_delegations', JSON.stringify(delegations)); }, [delegations]);
     useEffect(() => { localStorage.setItem('pms_visibility_settings', JSON.stringify(visibilitySettings)); }, [visibilitySettings]);
@@ -517,15 +521,30 @@ const AppContent = () => {
         }
     };
 
+    // A screen hands back its whole copy of the project; only the parts the backend does not hold are taken from it (the rest would be stale).
     const handlePartialUpdateProject = (updatedProject: Project) => {
-        setProjects(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
+        setProjects(prev => prev.map(p => p.id === updatedProject.id ? { ...p, ...localPartsOf(updatedProject) } : p));
     };
 
     /** The AI assistant hands back a whole project: its other parts stay as they were, what it added to the registers is saved on the backend. */
     const handleAssistantProjectUpdate = (updatedProject: Project) => {
         const before = projects.find(p => p.id === updatedProject.id);
-        setProjects(prev => prev.map(p => p.id === updatedProject.id ? { ...updatedProject, risks: p.risks, stakeholders: p.stakeholders, statusUpdates: p.statusUpdates, delayReasons: p.delayReasons, documents: p.documents } : p));
+        setProjects(prev => prev.map(p => p.id === updatedProject.id ? { ...updatedProject, risks: p.risks, stakeholders: p.stakeholders, statusUpdates: p.statusUpdates, delayReasons: p.delayReasons, documents: p.documents, schedule: p.schedule, kanbanTasks: p.kanbanTasks } : p));
         if (!before) return;
+        // New activities / tasks the assistant added are created on the backend (which then calculates the schedule); the lists shown come back from it.
+        const reportFailure = (outcome: { ok: boolean; message?: string }) => {
+            if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
+        };
+        const knownActivities = new Set((before.schedule ?? []).map(a => a.id));
+        const newActivities = (updatedProject.schedule ?? []).filter(a => !knownActivities.has(a.id));
+        if (updatedProject.type === 'waterfall' && newActivities.length) {
+            void projectsState.saveActivities(before.id, newActivities, false).then(reportFailure);
+        }
+        const knownTasks = new Set((before.kanbanTasks ?? []).map(k => k.id));
+        const newTasks = (updatedProject.kanbanTasks ?? []).filter(k => !knownTasks.has(k.id));
+        if (updatedProject.type === 'agile' && newTasks.length) {
+            void projectsState.saveKanbanTasks(before.id, newTasks, false).then(reportFailure);
+        }
         const shown = enrichProjectWithProgress(updatedProject, calendars);
         void projectsState.syncRegisters(before.id, before, updatedProject, { planned: shown.plannedProgress, actual: shown.actualProgress }).then(outcome => {
             if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
@@ -592,80 +611,20 @@ const AppContent = () => {
         handleNavigate('main');
     };
 
-    const handleAddProgressUpdate = (projectId: string, activityId: string, progress: number, submissionComment: string, documentName?: string) => {
-        const project = projects.find(p => p.id === projectId);
-        const activity = project?.schedule?.find(a => a.id === activityId);
-        if (!activity) return;
-
-        const stages = dynamicWorkflowSettings?.activity_progress || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.activity_progress;
-        const initialStage = stages?.[0];
-        const effectiveApproverId = initialStage 
-            ? resolveWorkflowApproverId(initialStage.approverId, project)
-            : (activity.approver1Id ?? project?.projectManagerId ?? users.find(u => u.role === 'Admin')?.id ?? 1);
-
-        const submitterActor = currentUser ? (currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username) : 'کاربر';
-        const initialRecord: ProjectApprovalRecord = {
-            action: 'Submitted',
-            date: getISODateTimeString(),
-            actor: submitterActor,
-            stageTitle: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission',
-            comment: submissionComment || ''
-        };
-
-        const newUpdate: ProgressUpdate = {
-            id: Date.now(),
-            projectId,
-            activityId,
-            submittedBy: currentUser!.id,
-            submittedProgress: progress,
-            status: 'Pending Approval',
-            submissionDate: getISODateTimeString(),
-            submissionComment,
-            documentName,
-            currentApproverId: effectiveApproverId,
-            currentStageIndex: 0,
-            approvalHistory: [initialRecord]
-        };
-        setProgressUpdates(prev => [...prev, newUpdate]);
-        setInfoModal({ title: t('submitForApproval'), message: t('progressUpdated') });
+    /** A team member reports how far an activity has got; the backend sends it for approval (or confirms it at once when nothing is configured). */
+    const handleAddProgressUpdate = async (projectId: string, activityId: string, progress: number, submissionComment: string, documentName?: string) => {
+        const outcome = await projectsState.submitActivityProgress(projectId, activityId, progress, submissionComment, documentName);
+        setInfoModal(outcome.ok
+            ? { title: t('submitForApproval'), message: t('progressUpdated') }
+            : { title: t('error'), message: outcome.message || t('error') });
     };
-    
-    const handleAddKanbanStatusUpdate = (projectId: string, taskId: number, newStatus: KanbanStatus, comment: string) => {
-        const project = projects.find(p => p.id === projectId);
-        const task = project?.kanbanTasks?.find(t => t.id === taskId);
-        if (!task) return;
 
-        const stages = dynamicWorkflowSettings?.activity_progress || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.activity_progress;
-        const initialStage = stages?.[0];
-        const effectiveApproverId = initialStage 
-            ? resolveWorkflowApproverId(initialStage.approverId, project)
-            : (task.approver1Id ?? project?.projectManagerId ?? users.find(u => u.role === 'Admin')?.id ?? 1);
-
-        const submitterActor = currentUser ? (currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username) : 'کاربر';
-        const initialRecord: ProjectApprovalRecord = {
-            action: 'Submitted',
-            date: getISODateTimeString(),
-            actor: submitterActor,
-            stageTitle: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission',
-            comment: comment || ''
-        };
-
-        const newUpdate: ProgressUpdate = {
-            id: Date.now(),
-            projectId,
-            taskId,
-            submittedBy: currentUser!.id,
-            submittedStatus: newStatus,
-            currentStatus: task.status,
-            status: 'Pending Approval',
-            submissionDate: getISODateTimeString(),
-            submissionComment: comment,
-            currentApproverId: effectiveApproverId,
-            currentStageIndex: 0,
-            approvalHistory: [initialRecord]
-        };
-        setProgressUpdates(prev => [...prev, newUpdate]);
-        setInfoModal({ title: t('submitForApproval'), message: t('progressUpdated') });
+    /** Asks for an agile task to move to another column; the backend sends the request for approval (or moves it at once when nothing is configured). */
+    const handleAddKanbanStatusUpdate = async (projectId: string, taskId: string, newStatus: KanbanStatus, comment: string) => {
+        const outcome = await projectsState.requestTaskStatus(projectId, taskId, newStatus, comment);
+        setInfoModal(outcome.ok
+            ? { title: t('submitForApproval'), message: t('progressUpdated') }
+            : { title: t('error'), message: outcome.message || t('error') });
     };
 
     const handleAddActionStatusUpdate = (actionId: number, newStatus: WorkStatus, currentStatus: WorkStatus, comment: string) => {
@@ -684,7 +643,7 @@ const AppContent = () => {
         };
 
         const newUpdate: ProgressUpdate = {
-            id: Date.now(),
+            id: String(Date.now()),
             actionId: actionId,
             submittedBy: currentUser!.id,
             submittedStatus: newStatus,
@@ -792,6 +751,25 @@ const AppContent = () => {
         } else if (type === 'progress') {
             const update = progressUpdates.find(up => up.id === id);
             if (!update) return;
+
+            // Reports on activities and requests on agile tasks are decided in the backend's approval workflow; the stages, the next approver and
+            // the checks on who may decide are its own. A rejection that still carries a confirmed figure is applied by the backend as well.
+            if (update.activityId || update.taskId) {
+                const partial = status === 'Rejected' && !!options?.isPartialRejection && options.approvedProgress !== undefined;
+                projectsState.decideUpdate(
+                    update.projectId!, update.id, status === 'Approved', comment,
+                    update.activityId && partial ? options!.approvedProgress : undefined,
+                    update.taskId && partial ? (options!.approvedProgress === 100 ? 'Done' : 'Doing') : undefined
+                ).then(outcome => setInfoModal(outcome.ok
+                    ? { title: t('updateStatus'), message: partial && update.activityId
+                        ? (language === 'fa'
+                            ? `پیشرفت اعلامی رد شد اما درصد پیشرفت تاییدی (${toPersianDigits(options!.approvedProgress!)}٪) ثبت گردید و ملاک تمام محاسبات قرار گرفت.`
+                            : `Submitted progress was rejected, but confirmed progress (${options!.approvedProgress}%) was saved and used for calculations.`)
+                        : t('reviewComplete') }
+                    : { title: t('error'), message: outcome.message || t('error') }));
+                setApprovalCommentModalState(null);
+                return;
+            }
 
             const isCharter = !!update.submittedCharter;
             const isAction = !!update.actionId;
@@ -1011,6 +989,22 @@ const AppContent = () => {
         setKnowledgeDocuments(prev => prev.filter(d => d.id !== id));
     };
     
+    /** Hands an activity / agile task to another person: the responsible is a field of the item on the backend. */
+    const reassignItem = async (type: 'waterfall' | 'agile', itemId: string, projectId: string | undefined, userId: string) => {
+        const project = projects.find(p => p.id === projectId);
+        if (!project) return;
+        const outcome = type === 'waterfall'
+            ? await (async () => {
+                const activity = project.schedule?.find(a => a.id === itemId);
+                return activity ? projectsState.updateActivity(project.id, { ...activity, assignedToId: userId }) : { ok: true };
+            })()
+            : await (async () => {
+                const task = project.kanbanTasks?.find(k => k.id === itemId);
+                return task ? projectsState.saveKanbanTask(project.id, { ...task, assignedToId: userId }) : { ok: true };
+            })();
+        if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
+    };
+
     const handleDelegateTask = (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: string | undefined, delegateeId: string) => {
         // 1. Reassign the task
         if (type === 'action') {
@@ -1018,22 +1012,7 @@ const AppContent = () => {
                 action.id === itemId ? { ...action, responsibleUserId: delegateeId } : action
             ));
         } else {
-            setProjects(prevProjects => prevProjects.map(p => {
-                if (p.id === projectId) {
-                    if (type === 'waterfall' && p.schedule) {
-                        const newSchedule = p.schedule.map(activity => 
-                            activity.id === itemId ? { ...activity, assignedToId: delegateeId } : activity
-                        );
-                        return { ...p, schedule: newSchedule };
-                    } else if (type === 'agile' && p.kanbanTasks) {
-                        const newTasks = p.kanbanTasks.map(task => 
-                            task.id === itemId ? { ...task, assignedToId: delegateeId } : task
-                        );
-                        return { ...p, kanbanTasks: newTasks };
-                    }
-                }
-                return p;
-            }));
+            void reassignItem(type, itemId as string, projectId, delegateeId);
         }
     
         // 2. Create a new delegation record
@@ -1065,16 +1044,7 @@ const AppContent = () => {
                 action.id === itemId ? { ...action, responsibleUserId: delegatorId } : action
             ));
         } else {
-            setProjects(prevProjects => prevProjects.map(p => {
-                if (p.id === projectId) {
-                    if (type === 'waterfall' && p.schedule) {
-                        return { ...p, schedule: p.schedule.map(a => a.id === itemId ? { ...a, assignedToId: delegatorId } : a) };
-                    } else if (type === 'agile' && p.kanbanTasks) {
-                        return { ...p, kanbanTasks: p.kanbanTasks.map(t => t.id === itemId ? { ...t, assignedToId: delegatorId } : t) };
-                    }
-                }
-                return p;
-            }));
+            void reassignItem(type, itemId as string, projectId, delegatorId);
         }
     
         // 2. Deactivate the entire subsequent chain of delegations

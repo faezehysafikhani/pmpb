@@ -13,7 +13,9 @@ export const SubjectType = {
   stakeholder: 'Stakeholder',
   status: 'ProgressUpdate',
   delay: 'DelayReason',
-  document: 'ProjectDocument'
+  document: 'ProjectDocument',
+  activityProgress: 'ActivityProgress',
+  taskStatus: 'AgileTaskStatus'
 } as const;
 export type RegisterKind = keyof typeof SubjectType;
 

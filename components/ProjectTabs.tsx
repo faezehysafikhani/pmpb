@@ -18,6 +18,7 @@ import { AiRiskModal } from './AiRiskModal';
 import { AiStakeholderModal } from './AiStakeholderModal';
 import { MsProjectImportModal } from './MsProjectImportModal';
 import { MsProjectExportModal } from './MsProjectExportModal';
+import { useProjects } from '../directory/ProjectsContext';
 import { DynamicWorkflowSettingsEditor } from './DynamicWorkflowSettingsEditor';
 export { ProjectContractsTab, ProjectInvoicesTab, ContractModal, InvoiceModal } from './ProjectContractInvoicesTabs';
 export { ProjectSettingsTab } from './ProjectSettingsTab';
@@ -2055,11 +2056,10 @@ export const ProjectDocumentsTab = ({ documents, users, onEdit, onDelete, isRead
     );
 };
 
-export const ProjectScheduleTab = ({ project, users, calendars, onUpdateSchedule, isReadOnly = false, currentUser, dynamicWorkflowSettings }: { 
+export const ProjectScheduleTab = ({ project, users, calendars, isReadOnly = false, currentUser, dynamicWorkflowSettings }: { 
     project: Project, 
     users: User[], 
     calendars: any[], 
-    onUpdateSchedule: (schedule: ProjectActivity[]) => void,
     isReadOnly?: boolean,
     currentUser?: User | null,
     dynamicWorkflowSettings?: DynamicWorkflowSettings
@@ -2075,7 +2075,6 @@ export const ProjectScheduleTab = ({ project, users, calendars, onUpdateSchedule
     const [msProjectModalOpen, setMsProjectModalOpen] = useState(false);
     const [msProjectExportModalOpen, setMsProjectExportModalOpen] = useState(false);
     const [detailsModalActivity, setDetailsModalActivity] = useState<ProjectActivity | null>(null);
-    const lastWeightingType = useRef(project.weightingType);
 
     const teamMembers = useMemo(() => {
         const ids = project?.teamMemberIds || [];
@@ -2142,111 +2141,76 @@ export const ProjectScheduleTab = ({ project, users, calendars, onUpdateSchedule
         applyLevelCollapse(newLevel, processedSchedule[0]);
     };
 
+    // The plan lives on the backend: an edit is sent there (a moment after typing stops) and the calculated plan - dates, floats, weights, WBS
+    // codes, percentages - is read back. The activity being edited keeps what was typed until its own save has gone through.
+    const registers = useProjects();
+    const projectRef = useRef(project);
+    projectRef.current = project;
+    const localRef = useRef(localSchedule);
+    localRef.current = localSchedule;
+    const dirty = useRef(new Map<string, { fields: Set<keyof ProjectActivity>; timer?: ReturnType<typeof setTimeout> }>());
     const prevScheduleRef = useRef(project.schedule);
-    
-    const updateScheduleAndLocal = useCallback((newSchedule: ProjectActivity[]) => {
-        setLocalSchedule(newSchedule);
-        onUpdateSchedule(newSchedule);
-    }, [onUpdateSchedule]);
+
+    const resyncFromBackend = useCallback(() => {
+        setLocalSchedule(projectRef.current.schedule || []);
+    }, []);
 
     useEffect(() => {
-        if (project.schedule !== prevScheduleRef.current) {
-            prevScheduleRef.current = project.schedule;
-            setLocalSchedule(project.schedule || []);
-        }
+        if (project.schedule === prevScheduleRef.current) return;
+        prevScheduleRef.current = project.schedule;
+        setLocalSchedule(prev => (project.schedule || []).map(activity => (dirty.current.has(activity.id) ? prev.find(p => p.id === activity.id) ?? activity : activity)));
     }, [project.schedule]);
 
-    useEffect(() => {
-        if (project.weightingType === lastWeightingType.current) return;
-        lastWeightingType.current = project.weightingType;
+    const report = (outcome: { ok: boolean; message?: string }) => {
+        if (!outcome.ok) window.alert(outcome.message || (language === 'fa' ? 'انجام نشد.' : 'The change could not be made.'));
+        return outcome.ok;
+    };
 
-        const projectWithCurrentState = { ...project, schedule: localSchedule };
-        const { rootNode } = calculateScheduleTreeAndProgress(projectWithCurrentState, projectCalendar, project.weightingType, project.plannedProgressType);
-
-        if (!rootNode) return;
-
-        const processedActivitiesMap = new Map<string, ProjectActivity>();
-        const flatten = (nodes: ProjectActivity[] | undefined) => {
-            if (!nodes) return;
-            nodes.forEach(node => {
-                if(node.id !== 'project-root') {
-                    processedActivitiesMap.set(node.id, node);
-                }
-                if (node.children) flatten(node.children);
-            });
-        };
-        flatten(rootNode.children);
-        
-        const newSchedule = localSchedule.map(activity => {
-            const processed = processedActivitiesMap.get(activity.id);
-            if (processed && typeof processed.weight === 'number') {
-                return { ...activity, weight: processed.weight };
-            }
-            return activity;
-        });
-
-        if (JSON.stringify(newSchedule) !== JSON.stringify(localSchedule)) {
-            updateScheduleAndLocal(newSchedule);
+    const commit = useCallback(async (id: string) => {
+        const entry = dirty.current.get(id);
+        const activity = localRef.current.find(a => a.id === id);
+        dirty.current.delete(id);
+        if (!entry || !activity) return;
+        const projectId = projectRef.current.id;
+        let outcome: { ok: boolean; message?: string } = { ok: true };
+        const planFields = [...entry.fields].filter(f => f !== 'prerequisiteId' && f !== 'prerequisiteType' && f !== 'lag' && f !== 'actualProgress');
+        if (planFields.length > 0) outcome = await registers.updateActivity(projectId, activity);
+        if (outcome.ok && (entry.fields.has('prerequisiteId') || entry.fields.has('prerequisiteType') || entry.fields.has('lag'))) {
+            outcome = await registers.setActivityPredecessor(projectId, id, activity.prerequisiteId, activity.prerequisiteType, activity.lag ?? 0);
         }
-    }, [project.weightingType, localSchedule, project, projectCalendar, project.plannedProgressType, updateScheduleAndLocal]);
-
+        if (outcome.ok && entry.fields.has('actualProgress')) {
+            outcome = await registers.setActivityActualProgress(projectId, id, activity.actualProgress);
+        }
+        if (!report(outcome) || dirty.current.size === 0) resyncFromBackend();
+    }, [registers, resyncFromBackend, language]);
 
     const handleUpdate = (id: string, field: keyof ProjectActivity, value: any) => {
-        const newSchedule = localSchedule.map(act => act.id === id ? { ...act, [field]: value } : act);
-        updateScheduleAndLocal(newSchedule);
+        setLocalSchedule(prev => prev.map(act => act.id === id ? { ...act, [field]: value } : act));
+        const entry = dirty.current.get(id) ?? { fields: new Set<keyof ProjectActivity>() };
+        entry.fields.add(field);
+        if (entry.timer) clearTimeout(entry.timer);
+        entry.timer = setTimeout(() => void commit(id), 600);
+        dirty.current.set(id, entry);
     };
 
-    const handleAddActivity = (parentId: string | null) => {
-        const newActivity: ProjectActivity = {
-            id: `task-${Date.now()}`,
-            name: t('newActivity'),
-            duration: 1,
-            prerequisiteId: null,
-            weight: 0,
-            assignedToId: null,
-            actualProgress: 0,
-            parentId: parentId,
-            cost: 0,
-            manHour: 0,
-            importance: 'Medium',
-            complexity: 'Medium',
-            lag: 0,
-            prerequisiteType: 'FS',
-            approver1Id: project.projectManagerId,
-            approver2Id: null,
-            approver3Id: null,
-        };
-        const newSchedule = [...localSchedule, newActivity];
-        updateScheduleAndLocal(newSchedule);
-        if (parentId) {
-            setExpandedRows(prev => ({ ...prev, [parentId]: true }));
-        }
+    const handleAddActivity = async (parentId: string | null) => {
+        const outcome = await registers.addActivity(projectRef.current.id, parentId, t('newActivity'));
+        if (report(outcome) && parentId) setExpandedRows(prev => ({ ...prev, [parentId]: true }));
     };
 
-    const handleDeleteActivity = (id: string) => {
+    const handleDeleteActivity = async (id: string) => {
         if (!window.confirm(t('confirmActivityDelete'))) return;
-        
-        const idsToDelete = new Set<string>([id]);
-        const queue = [id];
-        
-        while(queue.length > 0) {
-            const currentId = queue.shift()!;
-            localSchedule.forEach(act => {
-                if(act.parentId === currentId) {
-                    idsToDelete.add(act.id);
-                    queue.push(act.id);
-                }
-            });
-        }
-        
-        const newSchedule = localSchedule.filter(act => !idsToDelete.has(act.id));
-        updateScheduleAndLocal(newSchedule);
+        report(await registers.deleteActivity(projectRef.current.id, id));
     };
-    
-    const handleSaveActivityDetails = (updatedActivity: ProjectActivity) => {
-        const newSchedule = localSchedule.map(act => (act.id === updatedActivity.id ? { ...act, ...updatedActivity } : act));
-        updateScheduleAndLocal(newSchedule);
-        setDetailsModalActivity(null);
+
+    const handleSaveActivityDetails = async (updatedActivity: ProjectActivity) => {
+        const before = localRef.current.find(a => a.id === updatedActivity.id);
+        const projectId = projectRef.current.id;
+        let outcome = await registers.updateActivity(projectId, { ...before, ...updatedActivity } as ProjectActivity);
+        if (outcome.ok && before && (before.prerequisiteId !== updatedActivity.prerequisiteId || before.prerequisiteType !== updatedActivity.prerequisiteType || (before.lag ?? 0) !== (updatedActivity.lag ?? 0))) {
+            outcome = await registers.setActivityPredecessor(projectId, updatedActivity.id, updatedActivity.prerequisiteId, updatedActivity.prerequisiteType, updatedActivity.lag ?? 0);
+        }
+        if (report(outcome)) setDetailsModalActivity(null);
     };
     
     const flatProcessedSchedule = useMemo(() => {
@@ -2413,51 +2377,22 @@ export const ProjectScheduleTab = ({ project, users, calendars, onUpdateSchedule
                 projectType: 'waterfall',
                 isOpen: aiModalOpen,
                 onClose: () => setAiModalOpen(false),
+                // The assistant's suggestions are created through the normal calls; their ids only say who is whose parent and prerequisite.
                 onApplyWaterfallSchedule: (newActivities, replace) => {
-                    let updatedSchedule: ProjectActivity[] = [];
-                    if (replace) {
-                        updatedSchedule = newActivities;
-                    } else {
-                        const currentSchedule = project.schedule || [];
-                        const maxId = currentSchedule.reduce((max, act) => Math.max(max, parseInt(act.id) || 0), 0);
-                        const reindexed = newActivities.map((act, i) => ({
-                            ...act,
-                            id: String(maxId + i + 1)
-                        }));
-                        updatedSchedule = [...currentSchedule, ...reindexed];
-                    }
-                    updateScheduleAndLocal(updatedSchedule);
+                    void registers.saveActivities(project.id, newActivities, replace).then(report);
                 }
             }),
             React.createElement(MsProjectImportModal, {
                 project,
                 isOpen: msProjectModalOpen,
                 onClose: () => setMsProjectModalOpen(false),
-                onApplySchedule: (newActivities, replace, parentIdsToExpand) => {
-                    let updatedSchedule: ProjectActivity[] = [];
-                    if (replace) {
-                        updatedSchedule = newActivities;
-                    } else {
-                        const currentSchedule = project.schedule || [];
-                        updatedSchedule = [...currentSchedule, ...newActivities];
-                    }
-                    updateScheduleAndLocal(updatedSchedule);
-                    if (parentIdsToExpand && parentIdsToExpand.length > 0) {
-                        const toExpandMap: Record<string, boolean> = { 'project-root': true };
-                        parentIdsToExpand.forEach(id => {
-                            toExpandMap[id] = true;
-                        });
-                        setExpandedRows(prev => ({ ...prev, ...toExpandMap }));
-                    }
-                }
+                onImport: (file, replaceExisting) => registers.importMsProject(project.id, file, replaceExisting)
             }),
             React.createElement(MsProjectExportModal, {
                 project,
-                scheduleActivities: processedSchedule,
-                calendar: projectCalendar,
-                users,
                 isOpen: msProjectExportModalOpen,
-                onClose: () => setMsProjectExportModalOpen(false)
+                onClose: () => setMsProjectExportModalOpen(false),
+                onExport: fileName => registers.exportMsProject(project.id, fileName)
             }),
             React.createElement("div", { className: "schedule-toolbar", style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' } },
                 React.createElement("div", { className: "toolbar-actions-left", style: { display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' } },
@@ -2548,21 +2483,25 @@ export const ProjectScheduleTab = ({ project, users, calendars, onUpdateSchedule
     );
 };
 
-export const ProjectKanbanTab = ({ project, users, onUpdateTasks, progressUpdates, onAddKanbanStatusUpdate, isReadOnly = false, dynamicWorkflowSettings }: { 
+export const ProjectKanbanTab = ({ project, users, progressUpdates, onAddKanbanStatusUpdate, isReadOnly = false, dynamicWorkflowSettings }: { 
     project: Project, 
     users: User[], 
-    onUpdateTasks: (tasks: KanbanTask[]) => void,
     progressUpdates: ProgressUpdate[],
-    onAddKanbanStatusUpdate?: (projectId: string, taskId: number, newStatus: KanbanStatus, comment: string) => void,
+    onAddKanbanStatusUpdate?: (projectId: string, taskId: string, newStatus: KanbanStatus, comment: string) => void,
     isReadOnly?: boolean,
     dynamicWorkflowSettings?: DynamicWorkflowSettings
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
+    const registers = useProjects();
+    const report = (outcome: { ok: boolean; message?: string }) => {
+        if (!outcome.ok) window.alert(outcome.message || (language === 'fa' ? 'انجام نشد.' : 'The change could not be made.'));
+        return outcome.ok;
+    };
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [aiModalOpen, setAiModalOpen] = useState(false);
     const [agileChartModalOpen, setAgileChartModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<Partial<KanbanTask> | null>(null);
-    const [historyModalInfo, setHistoryModalInfo] = useState<{ taskId: number; projectId: string } | null>(null);
+    const [historyModalInfo, setHistoryModalInfo] = useState<{ taskId: string; projectId: string } | null>(null);
 
 
     const teamMembers = useMemo(() => {
@@ -2587,26 +2526,19 @@ export const ProjectKanbanTab = ({ project, users, onUpdateTasks, progressUpdate
         setIsModalOpen(true);
     };
 
-    const handleDeleteTask = (taskId: number) => {
+    const handleDeleteTask = async (taskId: string) => {
         if(window.confirm(t('confirmTaskDelete'))) {
-            const updatedTasks = (project.kanbanTasks || []).filter(t => t.id !== taskId);
-            onUpdateTasks(updatedTasks);
+            report(await registers.deleteKanbanTask(project.id, taskId));
         }
     };
     
-    const handleSaveTask = (taskData: KanbanTask) => {
-        let updatedTasks;
-        if(taskData.id) { 
-            updatedTasks = (project.kanbanTasks || []).map(t => t.id === taskData.id ? taskData : t);
-        } else {
-            updatedTasks = [...(project.kanbanTasks || []), {...taskData, id: Date.now() }];
-        }
-        onUpdateTasks(updatedTasks);
+    const handleSaveTask = async (taskData: KanbanTask) => {
+        if (!report(await registers.saveKanbanTask(project.id, taskData))) return;
         setIsModalOpen(false);
         setEditingTask(null);
     };
 
-    const handleSendForApproval = (taskId: number) => {
+    const handleSendForApproval = (taskId: string) => {
         if (onAddKanbanStatusUpdate) {
             onAddKanbanStatusUpdate(project.id, taskId, 'Doing', t('sendForApproval'));
         }
@@ -2643,15 +2575,8 @@ export const ProjectKanbanTab = ({ project, users, onUpdateTasks, progressUpdate
                 projectType: 'agile',
                 isOpen: aiModalOpen,
                 onClose: () => setAiModalOpen(false),
-                onApplyAgileTasks: (newTasks, replace) => {
-                    let updatedTasks: KanbanTask[] = [];
-                    if (replace) {
-                        updatedTasks = newTasks;
-                    } else {
-                        const currentTasks = project.kanbanTasks || [];
-                        updatedTasks = [...currentTasks, ...newTasks];
-                    }
-                    onUpdateTasks(updatedTasks);
+                onApplyAgileTasks: async (newTasks, replace) => {
+                    report(await registers.saveKanbanTasks(project.id, newTasks, replace));
                 }
             }),
             agileChartModalOpen && React.createElement(AgileProgressChartModal, {
@@ -2822,7 +2747,7 @@ const _DeprecatedProjectSettingsTab = ({
     onSaveSettings: (settings: Partial<Project>) => void,
     scheduleSnapshots: ScheduleSnapshot[],
     onSaveSnapshot: (name: string, type: 'Baseline' | 'Progress Information') => void,
-    onDeleteSnapshot: (id: number) => void,
+    onDeleteSnapshot: (id: string) => void,
     onViewSnapshot: (snapshot: ScheduleSnapshot) => void,
     currentUser?: User | null,
     users?: User[],

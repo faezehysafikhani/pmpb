@@ -20,13 +20,23 @@ Plan and the list of backend additions: `docs/ui-integration/PLAN.md` in the bac
 * `directory/ProjectsContext.tsx` - the projects the signed-in user may see (the backend decides which: `GET /api/portfolio/projects`), and create / update / status / submit / delete.
   The backend owns a project's charter, people, unit, calendar, dates, status, team and approval state, and (phase 3) its registers: risks, stakeholders, status reports,
   delay reasons and documents, with the risk matrix settings and the stakeholder strategy wording. The remaining parts a screen keeps inside the project object
-  (schedule, agile board, tab settings ...) are **not connected yet**: they are kept in this browser per project id (`pms_project_extras`) until their own phase.
+  (tab settings, visibility switches, actions ...) are **not connected yet**: they are kept in this browser per project id (`pms_project_extras`) until their own phase.
 * `services/backend/registers.ts`, `registerMappers.ts`, `registerLoad.ts` - the register endpoints, their shape adapters and the batch loader
   (one call per register for all visible projects, plus the Workflow lookup that gives each item its approval state / next approver / decision history).
   Approving or rejecting a register item is `POST /api/workflow/approval-center/{id}/approve|reject` (`ProjectsContext.decide`); nothing about stages is computed in the browser.
 * Two small pieces are still kept in the browser, keyed by item id (`pms_register_local`): the second approval round on a risk's response (risk response verification,
   connected with the task centre in a later phase) and the AI summary notes of a document.
-* The status report's planned / actual progress are sent as the screen shows them today (`enrichProjectWithProgress`) until the schedule is connected (phase 4).
+* The status report's planned / actual progress are the project's backend figures (`progressFigures`, from `POST /projects/progress`).
+* **Planning (phase 4)** - `services/backend/planning.ts` (waterfall + agile + progress endpoints), `planningMappers.ts` (shape adapters),
+  `planningLoad.ts` (batch loader: plans, tasks, sprints, progress reports / status requests with their Workflow history, project progress figures) and
+  `directory/planningOps.ts` (every write; each write is followed by reading the plan back). The browser no longer works out dates, weights, WBS codes,
+  float, planned / actual percentages or approval states: the schedule tab shows what `GET /waterfall/schedule/plan` returns and sends edits
+  (debounced, 600 ms) as activity updates / `PUT /dependencies/predecessor` / `PUT /activities/{id}/actual-progress`.
+  Progress reports and agile status requests go to `/waterfall/progress-submissions` and `/agile/status-submissions` and are decided in the Workflow
+  approval centre (approving with another figure = `confirmed-progress`). Settings (weighting / planned-progress mode), saved copies (baseline / progress
+  information, which also feed the S-curve), MS Project import / export and the number of sprints are backend calls too.
+  `utils.ts` keeps only presentation helpers: its old CPM / weighting / progress calculation was removed. Agile charts (burn-up / down) are still
+  aggregated in the browser from the tasks until the reports phase (8).
 * `services/backend/errors.ts` - the words (Persian / English) for the backend's project error codes. The rules themselves live in the backend.
 * `services/backend/runtimeDirectory.ts` - hands the backend-fed unit tree and calendars to plain helper functions that cannot use React context.
 * Ids are strings (the backend's GUIDs).
@@ -42,7 +52,8 @@ Plan and the list of backend additions: `docs/ui-integration/PLAN.md` in the bac
 | Projects: list, create, edit charter, team, work status, send for approval, delete (guarded), portfolio visibility | **connected** (phase 2) |
 | Risks (+ response status, matrix colours, level definitions), stakeholders (+ strategy wording), status reports, delay reasons, documents (real upload / download), their approval via the Workflow backend | **connected** (phase 3) |
 | Project statuses list (reference tables page) | the backend's fixed set, shown read-only (a custom status could not be saved) |
-| Schedule, agile, actions, contracts, strategy, knowledge, dashboards, reports | still the old local/mock data (phases 4-8) |
+| Schedule (WBS, dependencies, weights, float, planned / actual progress), weighting settings, saved copies, S-curve, MS Project import / export, agile tasks and sprint count, activity progress reports and task status requests (approved through the Workflow backend), project progress figures | **connected** (phase 4) |
+| Actions, contracts, strategy, knowledge, dashboards, reports | still the old local/mock data (phases 5-8) |
 | Approval centre (register items) | decisions go to the backend workflow; delegation, stage editor and the full centre are phase 7 |
 
 Approving a submitted project needs the approval centre (phase 7): until a workflow is defined for projects the backend approves a project as soon as it is sent.

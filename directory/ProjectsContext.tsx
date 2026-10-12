@@ -1,6 +1,6 @@
 import * as React from 'react';
 import type {
-  Project, ProjectDocument, ProjectRisk, ProjectStakeholder, RiskProbabilityImpactDefinitions, StakeholderStrategies, WorkStatus
+  ProgressUpdate, Project, ProjectDocument, ProjectRisk, ProjectStakeholder, RiskProbabilityImpactDefinitions, StakeholderStrategies, WorkStatus
 } from '../types';
 import { useAuth } from './AuthContext';
 import { useDirectory } from './DirectoryContext';
@@ -18,6 +18,9 @@ import {
   toStakeholderBody
 } from '../services/backend/registerMappers';
 import { loadRegisters } from '../services/backend/registerLoad';
+import { loadPlanning } from '../services/backend/planningLoad';
+import { createPlanningOps } from './planningOps';
+import type { PlanningOps } from './planningOps';
 import type { ProjectRegisters } from '../services/backend/registerLoad';
 
 export interface ProjectOutcome extends Outcome {
@@ -27,7 +30,9 @@ export interface ProjectOutcome extends Outcome {
   project?: Project;
 }
 
-interface ProjectsState {
+interface ProjectsState extends PlanningOps {
+  /** The progress reports and status requests the backend holds (every visible project), newest first; each has its approval state and history. */
+  progressUpdates: ProgressUpdate[];
   loading: boolean;
   error: string | null;
   /** The projects the signed-in user may see - the backend decides which. */
@@ -93,6 +98,11 @@ function readExtras(): Extras {
   } catch {
     return {};
   }
+}
+
+/** The parts of a project that no backend area holds yet (what a screen's copy may overwrite). */
+export function localPartsOf(project: Project): Partial<Project> {
+  return extrasOf(project);
 }
 
 function extrasOf(project: Project): Partial<Project> {
@@ -182,6 +192,11 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
   const loaded = React.useRef(false);
   /** The Workflow instance that decides each register item, by item id. */
   const instanceByItem = React.useRef(new Map<string, string>());
+  const [progressUpdates, setProgressUpdates] = React.useState<ProgressUpdate[]>([]);
+  const projectsRef = React.useRef<Project[]>([]);
+  projectsRef.current = projects;
+  const progressUpdatesRef = React.useRef<ProgressUpdate[]>([]);
+  progressUpdatesRef.current = progressUpdates;
   const people = React.useMemo(() => buildPeople(directory.users), [directory.users]);
 
   const load = React.useCallback(async (): Promise<Project[] | null> => {
@@ -204,13 +219,16 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
     }
 
     const registers = await loadRegisters(list.map(p => p.id), people);
-    instanceByItem.current = registers.instanceByItem;
+    const planning = await loadPlanning(list.map(p => ({ id: p.id, type: p.type === 1 ? 'agile' as const : 'waterfall' as const })), people);
+    instanceByItem.current = new Map([...registers.instanceByItem, ...planning.instanceByItem]);
+    setProgressUpdates(planning.progressUpdates);
     if (registers.error) setError(registers.error);
+    else if (planning.error) setError(planning.error);
 
     const extras = readExtras();
     const mapped = list.map(p => toUiProject(
       p, directory.unitPathById, membersByProject.get(p.id) ?? [], extras[p.id],
-      withLocalOnly(registers.byProject.get(p.id) as ProjectRegisters)));
+      withLocalOnly(registers.byProject.get(p.id) as ProjectRegisters), planning.byProject.get(p.id)));
     setProjects(mapped);
     loaded.current = true;
     setLoading(false);
@@ -434,6 +452,24 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
     return { ...ops, syncRegisters };
   }, [tenantId, people, projects, settle, createAndSubmit, refreshRegisters]);
 
+  const patchProject = React.useCallback((id: string, patch: Partial<Project>) => {
+    setProjects(prev => prev.map(p => (p.id === id ? { ...p, ...patch } : p)));
+  }, []);
+
+  const replaceUpdates = React.useCallback((projectId: string, updates: ProgressUpdate[]) => {
+    setProgressUpdates(prev => [...prev.filter(u => u.projectId !== projectId), ...updates].sort((a, b) => b.submissionDate.localeCompare(a.submissionDate)));
+  }, []);
+
+  const planningOps = React.useMemo(() => createPlanningOps({
+    tenantId,
+    people,
+    getProject: id => projectsRef.current.find(p => p.id === id),
+    patchProject,
+    replaceUpdates,
+    get instances() { return instanceByItem.current; },
+    taskOfUpdate: updateId => progressUpdatesRef.current.find(u => u.id === updateId)?.taskId
+  }), [tenantId, people, patchProject, replaceUpdates]);
+
   const value = React.useMemo<ProjectsState>(() => ({
     loading,
     error,
@@ -458,6 +494,10 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
       // A project that arrives with register items already filled in (the AI assistant builds them) has them saved with it.
       const synced = await registerOps.syncRegisters(created.value.id, {}, project, { planned: 0, actual: 0 });
       if (!synced.ok) console.warn('Some register items of the new project were not saved:', synced.message);
+      // Activities / tasks / sprints that arrive with the new project (the AI assistant builds them) go in before it is submitted, so the
+      // backend's checks on submission see them.
+      const planned = await planningOps.syncNewProjectPlan(created.value.id, project);
+      if (!planned.ok) console.warn('Some planning items of the new project were not saved:', planned.message);
       return finish(created.value.id, project, submit);
     },
 
@@ -474,6 +514,15 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
         if (!moved.ok) {
           await load();
           return fail(moved.error?.message, moved.error?.code);
+        }
+      }
+
+      // The number of sprints is the project's own setting on the backend; ask for it only when the form changed it.
+      if (project.type === 'agile' && before && project.sprintCount && project.sprintCount !== before.sprintCount) {
+        const counted = await planningOps.setSprintCount(project.id, project.sprintCount);
+        if (!counted.ok) {
+          await load();
+          return fail(counted.message, counted.code);
         }
       }
 
@@ -499,8 +548,10 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
       return { ok: true };
     },
 
-    ...registerOps
-  }), [loading, error, projects, reload, load, tenantId, bodyOf, finish, registerOps]);
+    ...registerOps,
+    ...planningOps,
+    progressUpdates
+  }), [loading, error, projects, reload, load, tenantId, bodyOf, finish, registerOps, planningOps, progressUpdates]);
 
   return React.createElement(ProjectsContext.Provider, { value }, children);
 };

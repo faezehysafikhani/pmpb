@@ -115,7 +115,10 @@ export const PROJECT_CORE_KEYS: (keyof Project)[] = [
   'id', 'type', 'approvalStatus', 'name', 'code', 'cost', 'ownerId', 'projectManagerId', 'startDate', 'endDate', 'status',
   'owningUnit', 'description', 'goal', 'requirements', 'constraintsAndAssumptions', 'calendarId', 'teamMemberIds',
   // the registers (phase 3)
-  'risks', 'stakeholders', 'statusUpdates', 'delayReasons', 'documents', 'riskDefinitions', 'riskMatrixColors', 'stakeholderStrategies'
+  'risks', 'stakeholders', 'statusUpdates', 'delayReasons', 'documents', 'riskDefinitions', 'riskMatrixColors', 'stakeholderStrategies',
+  // the plan (phase 4)
+  'schedule', 'kanbanTasks', 'sprintCount', 'weightingType', 'plannedProgressType', 'timeWeightFactor', 'costWeightFactor', 'complexityWeightFactor',
+  'scheduleSnapshots', 'progressFigures', 'scheduleInfo'
 ];
 
 export function toUiProject(
@@ -123,7 +126,8 @@ export function toUiProject(
   unitPathById: Map<string, string>,
   memberIds: string[],
   extras: Partial<Project> | undefined,
-  registers?: Partial<Project>
+  registers?: Partial<Project>,
+  planning?: Partial<Project>
 ): Project {
   // The backend keeps constraints and assumptions apart; the charter screen has one box for both.
   const constraintsAndAssumptions = [project.constraints, project.assumptions].filter(Boolean).join('\n');
@@ -134,6 +138,9 @@ export function toUiProject(
     risks: [], stakeholders: [], statusUpdates: [], delayReasons: [], documents: [],
     riskDefinitions: undefined, riskMatrixColors: undefined, stakeholderStrategies: undefined,
     ...(registers ?? {}),
+    // Likewise for the plan: whatever an older build kept here is never used.
+    schedule: [], kanbanTasks: [], scheduleSnapshots: [], progressFigures: undefined, scheduleInfo: undefined,
+    ...(planning ?? {}),
     id: project.id,
     type: project.type === BackendProjectType.Agile ? 'agile' : 'waterfall',
     approvalStatus: UI_APPROVAL_BY_BACKEND[project.approvalStatus] ?? 'Draft',

@@ -268,7 +268,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
     progressUpdates: ProgressUpdate[], 
     calendars: any[],
     onAddProgressUpdate: (projectId: string, activityId: string, progress: number, submissionComment: string, documentName?: string) => void,
-    onAddKanbanStatusUpdate: (projectId: string, taskId: number, newStatus: KanbanStatus, comment: string) => void,
+    onAddKanbanStatusUpdate: (projectId: string, taskId: string, newStatus: KanbanStatus, comment: string) => void,
     onAddActionStatusUpdate: (actionId: number, newStatus: WorkStatus, currentStatus: WorkStatus, comment: string) => void,
     onUpdateRiskResponseStatus?: (projectId: string, riskId: string, newStatus: WorkStatus, comment: string) => void,
     onNavigate: (page: string) => void,
@@ -298,7 +298,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
 
     // Agile state
     const [statusUpdateModalTask, setStatusUpdateModalTask] = useState<EnrichedKanbanTask | null>(null);
-    const [kanbanHistoryModalInfo, setKanbanHistoryModalInfo] = useState<{ taskId: number, projectId: string } | null>(null);
+    const [kanbanHistoryModalInfo, setKanbanHistoryModalInfo] = useState<{ taskId: string, projectId: string } | null>(null);
     
     // Action state
     const [actionStatusUpdateModal, setActionStatusUpdateModal] = useState<ActionItem | null>(null);
@@ -737,7 +737,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
         setStatusUpdateModalTask(task);
     };
     
-    const handleSaveAgileStatus = (taskId: number, newStatus: KanbanStatus, comment: string) => {
+    const handleSaveAgileStatus = (taskId: string, newStatus: KanbanStatus, comment: string) => {
         if (statusUpdateModalTask) {
             onAddKanbanStatusUpdate(statusUpdateModalTask.projectId, taskId, newStatus, comment);
             setStatusUpdateModalTask(null);

@@ -2,12 +2,13 @@ import React, { useMemo, useState, useContext, ReactElement, Fragment } from 're
 import { 
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
+import { useSCurve } from '../directory/useSCurve';
 import { LocalizationContext } from '../context';
 import { 
     Project, ProjectActivity, Calendar, ProgressUpdate, KanbanStatus
 } from '../types';
 import { 
-    calculateSCurveData, formatDate, toPersianDigits, exportDashboardToLandscapePdf 
+    formatDate, toPersianDigits, exportDashboardToLandscapePdf 
 } from '../utils';
 
 export const SCurveChartInline = ({ 
@@ -21,9 +22,7 @@ export const SCurveChartInline = ({
 }): ReactElement => {
     const { language } = useContext(LocalizationContext);
 
-    const sCurveData = useMemo(() => {
-        return calculateSCurveData(project, activities, calendar, language);
-    }, [activities, project, calendar, language]);
+    const sCurveData = useSCurve(project, language);
 
     const hasActualData = useMemo(() => {
         return sCurveData.some(p => p.actualProgress !== null && p.actualProgress !== undefined);

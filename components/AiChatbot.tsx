@@ -302,15 +302,15 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
         { id: `act-${Date.now()}-3`, name: 'تست، تحویل و راه‌اندازی', duration: 5, weight: 30, assignedToId: currentUser?.id || 1, actualProgress: 0, parentId: null, prerequisiteId: null }
       ]) : [],
       kanbanTasks: pType === 'agile' ? (Array.isArray(actionData.kanbanTasks) && actionData.kanbanTasks.length > 0 ? actionData.kanbanTasks.map((kt: any, idx: number) => ({
-        id: Date.now() + idx,
+        id: String(Date.now() + idx),
         description: kt.description || kt.title || 'تسک چابک',
         status: kt.status || 'To-Do',
         priority: kt.priority || 'Medium',
         assignedToId: kt.assignedToId ? String(kt.assignedToId) : (currentUser?.id || 1),
         dueDate: kt.dueDate || getISODateString()
       })) : [
-        { id: Date.now() + 1, description: 'تحلیل استوری‌ها و نیازمندی‌های اسپرینت', status: 'To-Do', priority: 'High', assignedToId: currentUser?.id || 1, dueDate: getISODateString() },
-        { id: Date.now() + 2, description: 'توسعه فاز ۱ اسپرینت', status: 'To-Do', priority: 'Medium', assignedToId: currentUser?.id || 1, dueDate: getISODateString() }
+        { id: String(Date.now() + 1), description: 'تحلیل استوری‌ها و نیازمندی‌های اسپرینت', status: 'To-Do', priority: 'High', assignedToId: currentUser?.id || 1, dueDate: getISODateString() },
+        { id: String(Date.now() + 2), description: 'توسعه فاز ۱ اسپرینت', status: 'To-Do', priority: 'Medium', assignedToId: currentUser?.id || 1, dueDate: getISODateString() }
       ]) : []
     };
 
@@ -791,7 +791,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
               updatedProj.schedule = [...(updatedProj.schedule || []), ...newActivities];
             } else if (targetProj.type === 'agile' && Array.isArray(data.actionData.kanbanTasks)) {
               const newTasks: KanbanTask[] = data.actionData.kanbanTasks.map((kt: any, idx: number) => ({
-                id: Date.now() + idx,
+                id: String(Date.now() + idx),
                 description: kt.description || kt.title || 'تسک چابک',
                 status: kt.status || 'To-Do',
                 priority: kt.priority || 'Medium',
@@ -983,7 +983,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
       updatedProj.schedule = [...(updatedProj.schedule || []), newAct];
     } else {
       const newTask: KanbanTask = {
-        id: Date.now(),
+        id: String(Date.now()),
         description: wbsName,
         status: 'To-Do',
         priority: 'Medium',

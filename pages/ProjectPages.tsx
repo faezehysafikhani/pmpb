@@ -97,7 +97,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
     calendars: Calendar[];
     setInfoModal: (modal: { title: string, message: string } | null) => void;
     progressUpdates: ProgressUpdate[];
-    onAddKanbanStatusUpdate?: (projectId: string, taskId: number, newStatus: KanbanStatus, comment: string) => void;
+    onAddKanbanStatusUpdate?: (projectId: string, taskId: string, newStatus: KanbanStatus, comment: string) => void;
     actions: ActionItem[];
     owningUnits: string[];
     projectStatuses: string[];
@@ -234,16 +234,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
             setIsValidatingCharter(false);
         }
 
-        if (projectData.id && projectData.type === 'waterfall' && (projectData.weightingType || 'manual') === 'manual' && projectData.schedule && projectData.schedule.length > 0) {
-            const { rootNode } = calculateScheduleTreeAndProgress(projectData as Project, projectCalendar, 'manual');
-            const totalWeight = Math.round(rootNode?.weight || 0);
-
-            if (totalWeight !== 100) {
-                setInfoModal({ title: t('error'), message: t('scheduleWeightError', { weight: totalWeight }) });
-                setActiveTab('schedule');
-                return;
-            }
-        }
+        // (Whether the activities' weights add up to 100 is checked by the backend when the project is sent for approval.)
         
         const mode = (action === 'send') ? 'sent' : 'draft';
         const defaultAdmin = users.find(u => u.role === 'Admin');
@@ -302,10 +293,28 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
             documents: liveProject.documents,
             riskDefinitions: liveProject.riskDefinitions,
             riskMatrixColors: liveProject.riskMatrixColors,
-            stakeholderStrategies: liveProject.stakeholderStrategies
+            stakeholderStrategies: liveProject.stakeholderStrategies,
+            schedule: liveProject.schedule,
+            kanbanTasks: liveProject.kanbanTasks,
+            sprintCount: liveProject.sprintCount,
+            weightingType: liveProject.weightingType,
+            plannedProgressType: liveProject.plannedProgressType,
+            timeWeightFactor: liveProject.timeWeightFactor,
+            costWeightFactor: liveProject.costWeightFactor,
+            complexityWeightFactor: liveProject.complexityWeightFactor,
+            scheduleSnapshots: liveProject.scheduleSnapshots,
+            progressFigures: liveProject.progressFigures,
+            scheduleInfo: liveProject.scheduleInfo
         }));
-    }, [liveProject?.risks, liveProject?.stakeholders, liveProject?.statusUpdates, liveProject?.delayReasons, liveProject?.documents,
+    }, [liveProject?.schedule, liveProject?.kanbanTasks, liveProject?.sprintCount, liveProject?.weightingType, liveProject?.plannedProgressType,
+        liveProject?.timeWeightFactor, liveProject?.costWeightFactor, liveProject?.complexityWeightFactor, liveProject?.scheduleSnapshots,
+        liveProject?.progressFigures, liveProject?.scheduleInfo, liveProject?.risks, liveProject?.stakeholders, liveProject?.statusUpdates, liveProject?.delayReasons, liveProject?.documents,
         liveProject?.riskDefinitions, liveProject?.riskMatrixColors, liveProject?.stakeholderStrategies]);
+
+    // The saved copies of the schedule are read when a waterfall project is opened.
+    useEffect(() => {
+        if (existingProject?.id && existingProject.type === 'waterfall') void registers.loadSnapshots(existingProject.id);
+    }, [existingProject?.id]);
 
     /** Runs a register change; a refusal is shown as the backend worded it. Returns whether it went through. */
     const runChange = async (change: (projectId: string) => Promise<{ ok: boolean; message?: string }>): Promise<boolean> => {
@@ -440,13 +449,18 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
     const handleRejectDocument = (id: string, comment?: string) => void decide('document')(id, false, comment);
     const handleDownloadDocument = (doc: ProjectDocument) => void runChange(() => registers.downloadDocument(doc));
 
-    const handleSaveSettings = (settings: Partial<Project>) => {
-        const updatedProject = {
-            ...projectData,
-            ...settings
-        } as Project;
-        setProjectData(updatedProject);
-        onPartialUpdate(updatedProject);
+    const WEIGHTING_KEYS: (keyof Project)[] = ['weightingType', 'plannedProgressType', 'timeWeightFactor', 'costWeightFactor', 'complexityWeightFactor'];
+    const handleSaveSettings = async (settings: Partial<Project>) => {
+        // How activities are weighed and planned progress is read is the backend's setting; the remaining switches (visible tabs, workflows)
+        // are not connected yet and stay with the project here.
+        const touchesWeighting = WEIGHTING_KEYS.some(key => key in settings);
+        const rest = Object.fromEntries(Object.entries(settings).filter(([key]) => !WEIGHTING_KEYS.includes(key as keyof Project))) as Partial<Project>;
+        if (touchesWeighting && !(await runChange(projectId => registers.saveWaterfallSettings(projectId, settings)))) return;
+        if (Object.keys(rest).length > 0) {
+            const updatedProject = { ...projectData, ...rest } as Project;
+            setProjectData(updatedProject);
+            onPartialUpdate(updatedProject);
+        }
         setInfoModal({ title: t('updateProject'), message: t('projectUpdatedSuccess') });
     };
 
@@ -454,44 +468,17 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
         setProjectData(prev => ({ ...prev, teamMemberIds: ids }));
     };
 
-    // Schedule Snapshots
-    const handleSaveSnapshot = (name: string, type: 'Baseline' | 'Progress Information') => {
+    // Saved copies of the schedule (baselines and progress records) are kept by the backend.
+    const handleSaveSnapshot = async (name: string, type: 'Baseline' | 'Progress Information') => {
         if (!name.trim()) {
             setInfoModal({ title: t('error'), message: t('snapshotNameRequired') });
             return;
         }
-        let currentActualProgress: number | undefined = undefined;
-        if (type === 'Progress Information') {
-            const { rootNode } = calculateScheduleTreeAndProgress(
-                projectData as Project,
-                projectCalendar,
-                projectData.weightingType,
-                projectData.plannedProgressType
-            );
-            currentActualProgress = Math.round((rootNode?.actualProgress ?? projectData.actualProgress ?? 0) * 10) / 10;
-        }
-        const newSnapshot: ScheduleSnapshot = {
-            id: Date.now(),
-            name,
-            date: new Date().toISOString(),
-            schedule: projectData.schedule || [],
-            type: type,
-            actualProgress: currentActualProgress,
-        };
-        const updatedSnapshots = [...(projectData.scheduleSnapshots || []), newSnapshot];
-        setProjectDataField('scheduleSnapshots', updatedSnapshots);
-        
-        const updatedProject = { ...projectData, scheduleSnapshots: updatedSnapshots } as Project;
-        onPartialUpdate(updatedProject);
+        await runChange(projectId => registers.createSnapshot(projectId, name.trim(), type));
     };
 
-    const handleDeleteSnapshot = (id: number) => {
-        if (window.confirm(t('confirmSnapshotDelete'))) {
-            const updatedSnapshots = (projectData.scheduleSnapshots || []).filter(s => s.id !== id);
-            setProjectDataField('scheduleSnapshots', updatedSnapshots);
-            const updatedProject = { ...projectData, scheduleSnapshots: updatedSnapshots } as Project;
-            onPartialUpdate(updatedProject);
-        }
+    const handleDeleteSnapshot = (id: string) => {
+        if (window.confirm(t('confirmSnapshotDelete'))) void runChange(projectId => registers.deleteSnapshot(projectId, id));
     };
 
     const projectTypeTranslations: Record<ProjectType, TranslationKey> = {
@@ -673,7 +660,6 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                         return React.createElement(ProjectKanbanTab, { 
                             project: projectData as Project,
                             users: users,
-                            onUpdateTasks: (tasks) => setProjectDataField('kanbanTasks', tasks),
                             progressUpdates: progressUpdates,
                             onAddKanbanStatusUpdate: onAddKanbanStatusUpdate,
                             isReadOnly: !isPMOrOwnerOrAdmin,
@@ -684,7 +670,6 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                             project: projectData as Project, 
                             users: users,
                             calendars: calendars,
-                            onUpdateSchedule: (newSchedule) => setProjectDataField('schedule', newSchedule),
                             isReadOnly: !isPMOrOwnerOrAdmin,
                             currentUser: currentUser,
                             dynamicWorkflowSettings: dynamicWorkflowSettings
@@ -2256,11 +2241,29 @@ export const ScheduleSnapshotPage = ({ pageContext, onNavigate, users }: {
     const { snapshot, calendar, project } = pageContext;
     const backIcon = language === 'fa' ? 'arrow_forward' : 'arrow_back';
 
+    // The copy's activities are read from the backend when the page opens; their weights, dates and percentages are the ones saved then.
+    const registers = useProjects();
+    const [copyActivities, setCopyActivities] = useState<ProjectActivity[] | null>(snapshot.schedule ?? null);
+    const [copyError, setCopyError] = useState<string | null>(null);
+    useEffect(() => {
+        if (snapshot.schedule) return;
+        let cancelled = false;
+        registers.getSnapshotActivities(snapshot.id).then(result => {
+            if (cancelled) return;
+            if (result.ok) setCopyActivities(result.activities ?? []);
+            else setCopyError(result.message ?? 'The copy could not be read.');
+        });
+        return () => { cancelled = true; };
+    }, [snapshot.id]);
+
     const processedSchedule = useMemo(() => {
-        const projectForCalc = { ...project, schedule: snapshot.schedule };
-        const { rootNode } = calculateScheduleTreeAndProgress(projectForCalc, calendar, project.weightingType, project.plannedProgressType);
+        const projectForCalc = {
+            ...project, schedule: copyActivities ?? [],
+            progressFigures: { plannedProgress: snapshot.plannedProgress ?? 0, actualProgress: snapshot.actualProgress ?? 0, performance: 0 }
+        };
+        const { rootNode } = calculateScheduleTreeAndProgress(projectForCalc);
         return rootNode ? [rootNode] : [];
-    }, [snapshot, calendar, project]);
+    }, [copyActivities, snapshot, project]);
     
     const renderTaskRows = (tasks: ProjectActivity[], level: number): ReactElement[] => {
         return tasks.flatMap(task => {
@@ -2315,7 +2318,8 @@ export const ScheduleSnapshotPage = ({ pageContext, onNavigate, users }: {
                         React.createElement("th", { className: "th-progress" }, t('actualPercent')),
                     )),
                     React.createElement("tbody", null,
-                        processedSchedule.length > 0 && renderTaskRows(processedSchedule, 0)
+                        processedSchedule.length > 0 && renderTaskRows(processedSchedule, 0),
+                        copyError && React.createElement("tr", null, React.createElement("td", { colSpan: 8, style: { textAlign: 'center', color: 'var(--danger-color, #dc2626)' } }, copyError))
                     )
                 )
             )

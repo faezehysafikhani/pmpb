@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { motion, MotionProps, AnimatePresence } from 'framer-motion';
 import { GoogleGenAI } from '@google/genai';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } from 'recharts';
+import { useSCurve } from '../directory/useSCurve';
 import { LocalizationContext } from '../context';
 import { 
     User, Project, ProjectRisk, ProjectStakeholder, getStakeholderStrategy, ProjectStatusUpdate, ProjectDelayReason, ProjectDocument, ProjectActivity, KanbanTask, 
@@ -10,7 +11,7 @@ import {
     KanbanStatus, TaskPriority, ActionItem, WorkStatus, SpecificHoliday, Calendar, EnrichedProject, EnrichedKanbanTask,
     ScheduleSnapshot, Delegation, ProjectApprovalRecord, StakeholderStrategies
 } from '../types';
-import { getISODateString, formatDate, formatDateTime, toJalali, toPersianDigits, enrichProjectWithProgress, calculateScheduleTreeAndProgress, calculateSCurveData, toSafeDate, exportDashboardToLandscapePdf, exportDashboardToPortraitPdf, exportToPdf } from '../utils';
+import { getISODateString, formatDate, formatDateTime, toJalali, toPersianDigits, enrichProjectWithProgress, calculateScheduleTreeAndProgress, toSafeDate, exportDashboardToLandscapePdf, exportDashboardToPortraitPdf, exportToPdf } from '../utils';
 import { ProgressBar, PerformanceIndicator, StackedProgressBar } from './Indicators';
 import { ShamsiDatePicker } from './ShamsiDatePicker';
 import { OwningUnitTreeSelect, ActionForm } from './Forms';
@@ -977,7 +978,7 @@ export const ActivityHistoryModal = ({ activityId, projectId, users, progressUpd
 };
 
 export const KanbanHistoryModal = ({ taskId, projectId, users, progressUpdates, onClose, projects }: {
-    taskId: number;
+    taskId: string;
     projectId: string;
     users: User[];
     projects: Project[];
@@ -1298,8 +1299,10 @@ export const KanbanTaskModal = ({ isOpen, onClose, onSave, task, teamMembers, sp
 
     const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
-        if (name === 'assignedToId' || name === 'sprintNumber') {
-            setFormData(prev => ({ ...prev, [name]: value ? parseInt(value) : undefined }));
+        if (name === 'assignedToId') {
+            setFormData(prev => ({ ...prev, assignedToId: value || undefined }));
+        } else if (name === 'sprintNumber') {
+            setFormData(prev => ({ ...prev, sprintNumber: value ? parseInt(value) : undefined }));
         } else {
             setFormData(prev => ({ ...prev, [name]: value }));
         }
@@ -2181,7 +2184,7 @@ export const KanbanStatusUpdateModal = ({ isOpen, onClose, task, onSubmit }: {
     isOpen: boolean;
     onClose: () => void;
     task: EnrichedKanbanTask;
-    onSubmit: (taskId: number, newStatus: KanbanStatus, comment: string) => void;
+    onSubmit: (taskId: string, newStatus: KanbanStatus, comment: string) => void;
 }): ReactElement | null => {
     const { t } = useContext(LocalizationContext);
     const [newStatus, setNewStatus] = useState<KanbanStatus>(task.status);
@@ -2802,9 +2805,7 @@ export const GanttChartModal = ({ activities, project, onClose }: { activities: 
 export const ProgressChartModal = ({ activities, project, calendar, onClose }: { activities: ProjectActivity[], project: Project, calendar: Calendar, onClose: () => void }): ReactElement => {
     const { language } = useContext(LocalizationContext);
 
-    const sCurveData = useMemo(() => {
-        return calculateSCurveData(project, activities, calendar, language);
-    }, [activities, project, calendar, language]);
+    const sCurveData = useSCurve(project, language);
 
     const hasActualData = useMemo(() => {
         return sCurveData.some(p => p.actualProgress !== null && p.actualProgress !== undefined);

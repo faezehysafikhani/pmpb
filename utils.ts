@@ -439,391 +439,76 @@ const countWorkingDays = (startDate: Date, endDate: Date, calendar: Calendar): n
     return count;
 };
 
+/**
+ * The activities of a project as the tree the schedule screens show. Nothing is calculated here: every date, float, weight, percentage, WBS code
+ * and critical flag on the activities is the backend's own calculation of the plan (see ProjectsContext); this only arranges them under their
+ * parents in WBS order and adds the project's total as a root node. The extra parameters are kept so existing callers still compile.
+ */
 export const calculateScheduleTreeAndProgress = (
     project: Project,
-    calendar: Calendar,
-    weightingType: 'manual' | 'time-based' | 'cost-based' | 'complexity-based' | 'combined' = 'manual',
-    plannedProgressType: PlannedProgressType = 'continuous',
-    calculationDate?: Date
+    _calendar?: Calendar,
+    _weightingType?: Project['weightingType'],
+    _plannedProgressType?: PlannedProgressType,
+    _calculationDate?: Date
 ): { rootNode: ProjectActivity | null } => {
     if (!project.schedule || project.schedule.length === 0) {
         return { rootNode: null };
     }
 
-    const activities = [...project.schedule];
-    const activityMap = new Map(activities.map(a => [a.id, { 
-        ...a,
-        startDate: toSafeDate(a.startDate),
-        endDate: toSafeDate(a.endDate),
-        lateStartDate: toSafeDate(a.lateStartDate),
-        lateEndDate: toSafeDate(a.lateEndDate)
-    } as ProjectActivity]));
-
-    // Build successor relationships
-    activityMap.forEach(activity => activity.successors = []);
-    activityMap.forEach(activity => {
-        if (activity.prerequisiteId && activityMap.has(activity.prerequisiteId)) {
-            const prereq = activityMap.get(activity.prerequisiteId);
-            prereq.successors.push(activity.id);
+    const wbsOrder = (a: ProjectActivity, b: ProjectActivity) => {
+        const left = (a.wbsCode || '').split('.').map(Number);
+        const right = (b.wbsCode || '').split('.').map(Number);
+        for (let i = 0; i < Math.max(left.length, right.length); i++) {
+            const diff = (left[i] ?? -1) - (right[i] ?? -1);
+            if (diff !== 0 && !isNaN(diff)) return diff;
         }
-    });
-
-    // --- FORWARD PASS ---
-    const projRawStart = toSafeDate(project.startDate) || new Date();
-    const projectStartDate = getNextWorkingDay(new Date(projRawStart.getTime() - 24 * 60 * 60 * 1000), calendar);
-    let changed = true;
-    for (let i = 0; i < activities.length + 1 && changed; i++) {
-        changed = false;
-        activities.forEach(a => {
-            const activity = activityMap.get(a.id);
-            if (!activity) return;
-            const prereq = activity.prerequisiteId ? activityMap.get(activity.prerequisiteId) : null;
-            let newStartDate: Date;
-
-            if (!prereq) {
-                newStartDate = projectStartDate;
-            } else {
-                const prereqType = activity.prerequisiteType || 'FS';
-                const lag = activity.lag || 0;
-                
-                const prereqEnd = toSafeDate(prereq.endDate);
-                const prereqStart = toSafeDate(prereq.startDate);
-
-                if ((prereqType === 'FS' || prereqType === 'FF') && !prereqEnd) return; // Prereq not ready
-                if ((prereqType === 'SS' || prereqType === 'SF') && !prereqStart) return; // Prereq not ready
-
-                switch (prereqType) {
-                    case 'SS':
-                        newStartDate = addWorkingDays(prereqStart!, lag, calendar);
-                        break;
-                    case 'FF': {
-                        const newEndDate = addWorkingDays(prereqEnd!, lag, calendar);
-                        newStartDate = addWorkingDays(newEndDate, -Math.max(0, activity.duration - 1), calendar);
-                        break;
-                    }
-                    case 'SF': {
-                        const newEndDate = addWorkingDays(prereqStart!, lag, calendar);
-                        newStartDate = addWorkingDays(newEndDate, -Math.max(0, activity.duration - 1), calendar);
-                        break;
-                    }
-                    case 'FS':
-                    default:
-                        // Standard FS: Successor starts the working day after the predecessor finishes.
-                        // S_start = P_end + 1 day. Lag is added to this.
-                        newStartDate = addWorkingDays(prereqEnd!, 1 + lag, calendar);
-                        break;
-                }
-            }
-            
-            const newEndDate = addWorkingDays(newStartDate, Math.max(0, activity.duration - 1), calendar);
-            const curStart = toSafeDate(activity.startDate);
-            const curEnd = toSafeDate(activity.endDate);
-            if (!curStart || !curEnd || curStart.getTime() !== newStartDate.getTime() || curEnd.getTime() !== newEndDate.getTime()) {
-                activity.startDate = newStartDate;
-                activity.endDate = newEndDate;
-                changed = true;
-            }
-        });
-    }
-
-    // --- BACKWARD PASS ---
-    let projectEndDate = new Date(0);
-    activityMap.forEach(a => {
-        const aEnd = toSafeDate(a.endDate);
-        if (aEnd && aEnd > projectEndDate) {
-            projectEndDate = aEnd;
-        }
-    });
-
-    activityMap.forEach(a => {
-        if (a.successors.length === 0) {
-            a.lateEndDate = projectEndDate;
-        }
-    });
-
-    changed = true;
-    for (let i = 0; i < activities.length + 1 && changed; i++) {
-        changed = false;
-        activities.slice().reverse().forEach(a => {
-            const activity = activityMap.get(a.id);
-            if (!activity) return;
-            if (activity.successors.length === 0) {
-                 activity.lateEndDate = projectEndDate;
-            } else {
-                let newLateEndDate = new Date('2999-12-31'); // A very late date
-                activity.successors.forEach(succId => {
-                    const successor = activityMap.get(succId);
-                    if (!successor) return;
-                    const succLateStart = toSafeDate(successor.lateStartDate);
-                    const succLateEnd = toSafeDate(successor.lateEndDate);
-                    if (!succLateStart) return; // Successor not ready
-                    
-                    const prereqType = successor.prerequisiteType || 'FS';
-                    const lag = successor.lag || 0;
-                    let impliedLateEndDate: Date;
-                    
-                    switch(prereqType) {
-                        case 'SS':
-                            const impliedLS = addWorkingDays(succLateStart, -lag, calendar);
-                            impliedLateEndDate = addWorkingDays(impliedLS, Math.max(0, activity.duration - 1), calendar);
-                            break;
-                        case 'FF':
-                            if (!succLateEnd) return;
-                            impliedLateEndDate = addWorkingDays(succLateEnd, -lag, calendar);
-                            break;
-                        case 'SF':
-                            if (!succLateEnd) return;
-                            const impliedEF = addWorkingDays(succLateEnd, -lag, calendar);
-                            // This is complex. We'll simplify SF's backward pass to be like an FF dependency
-                            impliedLateEndDate = impliedEF;
-                            break;
-                        case 'FS':
-                        default:
-                            const succLS = addWorkingDays(succLateStart, -1, calendar);
-                            impliedLateEndDate = addWorkingDays(succLS, -(1 + lag), calendar);
-                            break;
-                    }
-
-                    if(impliedLateEndDate < newLateEndDate) newLateEndDate = impliedLateEndDate;
-                });
-                const curLateEnd = toSafeDate(activity.lateEndDate);
-                if(newLateEndDate < new Date('2999-01-01') && (!curLateEnd || curLateEnd.getTime() !== newLateEndDate.getTime())){
-                    activity.lateEndDate = newLateEndDate;
-                    changed = true;
-                }
-            }
-
-            const lateEnd = toSafeDate(activity.lateEndDate);
-            const lateStart = toSafeDate(activity.lateStartDate);
-            if(lateEnd && (!lateStart || lateEnd.getTime() !== lateEnd.getTime())){
-                 activity.lateStartDate = addWorkingDays(lateEnd, -Math.max(0, activity.duration - 1), calendar);
-                 changed = true;
-            }
-        });
-    }
-
-    // --- FINAL CALCULATIONS (FLOATS, etc.) ---
-    const today = calculationDate ? normalizeDate(calculationDate)! : normalizeDate(new Date())!;
-    activityMap.forEach(activity => {
-        const actStart = toSafeDate(activity.startDate);
-        const actEnd = toSafeDate(activity.endDate);
-        const actLateStart = toSafeDate(activity.lateStartDate);
-
-        if (actStart && actLateStart) {
-            activity.totalFloat = countWorkingDays(actStart, actLateStart, calendar);
-        } else {
-            activity.totalFloat = 0;
-        }
-        activity.isCritical = activity.totalFloat <= 0;
-
-        let minSuccessorES = new Date('2999-12-31');
-        activity.successors.forEach(succId => {
-            const successor = activityMap.get(succId);
-            if (!successor) return;
-            const succStart = toSafeDate(successor.startDate);
-            if (succStart && succStart < minSuccessorES) {
-                minSuccessorES = succStart;
-            }
-        });
-        if (minSuccessorES < new Date('2999-01-01') && actEnd) {
-            activity.freeFloat = countWorkingDays(actEnd, minSuccessorES, calendar) - 1;
-        } else {
-            activity.freeFloat = activity.totalFloat;
-        }
-
-        if (actStart && actEnd) {
-             if (plannedProgressType === 'zero-hundred') {
-                 activity.plannedProgress = today >= actEnd ? 100 : 0;
-             } else { // 'continuous'
-                 const durationMs = actEnd.getTime() - actStart.getTime();
-                 if (durationMs >= 0) {
-                    const totalDurationMs = (activity.duration - 1) * 24 * 3600 * 1000;
-                    const elapsedMs = today.getTime() - actStart.getTime();
-                    const plannedProgress = totalDurationMs > 0 ? (elapsedMs / totalDurationMs) * 100 : (today >= actStart ? 100 : 0);
-                    activity.plannedProgress = Math.max(0, Math.min(100, plannedProgress));
-                 }
-             }
-        }
-    });
-
-    // --- Build Tree and Aggregate ---
-    const activityMapWithData = new Map(Array.from(activityMap.values()).map(a => [a.id, { ...a, children: [] as ProjectActivity[] }]));
-    const tree: ProjectActivity[] = [];
-    activities.forEach(act => {
-        const activity = activityMapWithData.get(act.id)!;
-        if (act.parentId && activityMapWithData.has(act.parentId)) {
-            activityMapWithData.get(act.parentId)!.children.push(activity);
-        } else {
-            tree.push(activity);
-        }
-    });
-    
-    const leafTasks = activities.filter(a => !activities.some(child => child.parentId === a.id));
-
-    if (weightingType === 'time-based') {
-        const totalDuration = leafTasks.reduce((sum, task) => sum + (task.duration || 0), 0);
-        activities.forEach(a => {
-            const activity = activityMapWithData.get(a.id)!;
-            if (leafTasks.some(leaf => leaf.id === a.id)) {
-                 activity.weight = totalDuration > 0 ? ((a.duration || 0) / totalDuration) * 100 : 0;
-            }
-        });
-    } else if (weightingType === 'cost-based') {
-        const totalCost = leafTasks.reduce((sum, task) => sum + (task.cost || 0), 0);
-        activities.forEach(a => {
-            const activity = activityMapWithData.get(a.id)!;
-            if (leafTasks.some(leaf => leaf.id === a.id)) {
-                 activity.weight = totalCost > 0 ? ((a.cost || 0) / totalCost) * 100 : 0;
-            }
-        });
-    } else if (weightingType === 'complexity-based') {
-        const complexityScores = { Low: 1, Medium: 2, High: 3 };
-        const totalComplexityScore = leafTasks.reduce((sum, task) => {
-            const score = complexityScores[task.complexity || 'Medium'];
-            return sum + score;
-        }, 0);
-        activities.forEach(a => {
-            const activity = activityMapWithData.get(a.id)!;
-            if (leafTasks.some(leaf => leaf.id === a.id)) {
-                const score = complexityScores[a.complexity || 'Medium'];
-                activity.weight = totalComplexityScore > 0 ? (score / totalComplexityScore) * 100 : 0;
-            }
-        });
-    } else if (weightingType === 'combined') {
-        const timeFactor = (project.timeWeightFactor ?? 0) / 100;
-        const costFactor = (project.costWeightFactor ?? 0) / 100;
-        const complexityFactor = (project.complexityWeightFactor ?? 0) / 100;
-
-        const totalDuration = leafTasks.reduce((sum, task) => sum + (task.duration || 0), 0);
-        const totalCost = leafTasks.reduce((sum, task) => sum + (task.cost || 0), 0);
-        const complexityScores = { Low: 1, Medium: 2, High: 3 };
-        const totalComplexityScore = leafTasks.reduce((sum, task) => sum + complexityScores[task.complexity || 'Medium'], 0);
-
-        activities.forEach(a => {
-            const activity = activityMapWithData.get(a.id)!;
-            if (leafTasks.some(leaf => leaf.id === a.id)) {
-                let combinedWeight = 0;
-                
-                if (totalDuration > 0) {
-                    const timeWeight = ((a.duration || 0) / totalDuration) * 100;
-                    combinedWeight += timeWeight * timeFactor;
-                }
-                
-                if (totalCost > 0) {
-                    const costWeight = ((a.cost || 0) / totalCost) * 100;
-                    combinedWeight += costWeight * costFactor;
-                }
-                
-                if (totalComplexityScore > 0) {
-                    const score = complexityScores[a.complexity || 'Medium'];
-                    const complexityWeight = (score / totalComplexityScore) * 100;
-                    combinedWeight += complexityWeight * complexityFactor;
-                }
-                
-                activity.weight = combinedWeight;
-            }
-        });
-    }
-
-    const calculateTree = (nodes: ProjectActivity[], level: number, parentWbs?: string): ProjectActivity[] => {
-        nodes.forEach((node, index) => {
-            node.level = level;
-            node.wbsCode = parentWbs ? `${parentWbs}.${index + 1}` : `${index + 1}`;
-            node.isParent = node.children.length > 0;
-            if (node.isParent) {
-                node.children = calculateTree(node.children, level + 1, node.wbsCode);
-                
-                const children = node.children;
-                const totalChildWeight = children.reduce((sum, c) => sum + c.weight, 0);
-                
-                node.weight = totalChildWeight;
-                node.cost = children.reduce((sum, c) => sum + (c.cost || 0), 0);
-                node.manHour = children.reduce((sum, c) => sum + (c.manHour || 0), 0);
-                node.actualProgress = totalChildWeight > 0 ? children.reduce((sum, c) => sum + c.actualProgress * c.weight, 0) / totalChildWeight : 0;
-                node.plannedProgress = totalChildWeight > 0 ? children.reduce((sum, c) => sum + (c.plannedProgress || 0) * c.weight, 0) / totalChildWeight : 0;
-                
-                const childStartDates = children.map(c => toSafeDate(c.startDate)).filter((d): d is Date => d !== null);
-                const childEndDates = children.map(c => toSafeDate(c.endDate)).filter((d): d is Date => d !== null);
-                
-                if(childStartDates.length > 0) node.startDate = new Date(Math.min(...childStartDates.map(d => d.getTime())));
-                if(childEndDates.length > 0) node.endDate = new Date(Math.max(...childEndDates.map(d => d.getTime())));
-                const nStart = toSafeDate(node.startDate);
-                const nEnd = toSafeDate(node.endDate);
-                if(nStart && nEnd) {
-                     node.duration = countWorkingDays(nStart, nEnd, calendar) + 1;
-                }
-            }
-        });
-        return nodes;
+        return 0;
     };
-    
-    const finalTree = calculateTree(tree, 1);
-    
+
+    const nodes = new Map<string, ProjectActivity>(project.schedule.map(a => [a.id, { ...a, children: [] as ProjectActivity[] }]));
+    const top: ProjectActivity[] = [];
+    [...nodes.values()].sort(wbsOrder).forEach(node => {
+        const parent = node.parentId ? nodes.get(node.parentId) : undefined;
+        if (parent) parent.children!.push(node);
+        else top.push(node);
+    });
+    nodes.forEach(node => { node.isParent = (node.children?.length ?? 0) > 0; });
+
+    const figures = project.progressFigures;
+    const sum = (key: 'weight' | 'cost' | 'manHour') => top.reduce((total, node) => total + (node[key] || 0), 0);
+    const starts = top.map(n => toSafeDate(n.startDate)).filter((d): d is Date => d !== null);
+    const ends = top.map(n => toSafeDate(n.endDate)).filter((d): d is Date => d !== null);
+    const weighted = (key: 'plannedProgress' | 'actualProgress') => {
+        const total = sum('weight');
+        return total > 0 ? top.reduce((acc, node) => acc + (node[key] || 0) * node.weight, 0) / total : 0;
+    };
+
     const rootNode: ProjectActivity = {
-        id: 'project-root', name: project.name, duration: 0, prerequisiteId: null, weight: 0, assignedToId: null,
-        actualProgress: 0, parentId: null, isParent: true, children: finalTree, cost: 0, manHour: 0,
+        id: 'project-root', name: project.name, duration: project.scheduleInfo?.projectDurationDays ?? 0, prerequisiteId: null, weight: sum('weight'),
+        assignedToId: null, parentId: null, isParent: true, children: top, cost: sum('cost'), manHour: sum('manHour'),
+        actualProgress: figures?.actualProgress ?? weighted('actualProgress'),
+        plannedProgress: figures?.plannedProgress ?? weighted('plannedProgress'),
+        startDate: starts.length ? new Date(Math.min(...starts.map(d => d.getTime()))) : undefined,
+        endDate: ends.length ? new Date(Math.max(...ends.map(d => d.getTime()))) : undefined
     };
-    
-    if (rootNode.children && rootNode.children.length > 0) {
-        const totalChildWeight = rootNode.children.reduce((sum, c) => sum + c.weight, 0);
-        rootNode.weight = totalChildWeight;
-        rootNode.cost = rootNode.children.reduce((sum, c) => sum + (c.cost || 0), 0);
-        rootNode.manHour = rootNode.children.reduce((sum, c) => sum + (c.manHour || 0), 0);
-        rootNode.actualProgress = totalChildWeight > 0 ? rootNode.children.reduce((sum, c) => sum + c.actualProgress * c.weight, 0) / totalChildWeight : 0;
-        rootNode.plannedProgress = totalChildWeight > 0 ? rootNode.children.reduce((sum, c) => sum + (c.plannedProgress || 0) * c.weight, 0) / totalChildWeight : 0;
-        
-        const childStartDates = rootNode.children.map(c => toSafeDate(c.startDate)).filter((d): d is Date => d !== null);
-        const childEndDates = rootNode.children.map(c => toSafeDate(c.endDate)).filter((d): d is Date => d !== null);
-        if (childStartDates.length > 0) rootNode.startDate = new Date(Math.min(...childStartDates.map(d => d.getTime())));
-        if (childEndDates.length > 0) rootNode.endDate = new Date(Math.max(...childEndDates.map(d => d.getTime())));
-        const rStart = toSafeDate(rootNode.startDate);
-        const rEnd = toSafeDate(rootNode.endDate);
-        if (rStart && rEnd) {
-            rootNode.duration = countWorkingDays(rStart, rEnd, calendar) + 1;
-        }
-    }
-    
     return { rootNode };
-}
+};
 
-export const enrichProjectWithProgress = (project: Project, calendars: Calendar[]): EnrichedProject => {
-    const today = new Date();
-    const startDate = toSafeDate(project.startDate) || new Date();
-    const endDate = toSafeDate(project.endDate) || new Date();
-
-    let plannedProgress = 0;
-    if (today > startDate && startDate < endDate) {
-        const totalDuration = endDate.getTime() - startDate.getTime();
-        const elapsedDuration = today.getTime() - startDate.getTime();
-        plannedProgress = Math.max(0, Math.min(100, (elapsedDuration / totalDuration) * 100));
-    } else if (today >= endDate) {
-        plannedProgress = 100;
-    }
-    
-    let actualProgress = 0;
-    const enrichedData: Partial<EnrichedProject> = {}; // Use partial type
-
-    if (project.type === 'waterfall' && calendars.length > 0 && pickCalendar(calendars, project.calendarId) && project.schedule && project.schedule.length > 0) {
-        const projectCalendar = pickCalendar(calendars, project.calendarId);
-        const { rootNode } = calculateScheduleTreeAndProgress(project, projectCalendar, project.weightingType, project.plannedProgressType);
-        actualProgress = rootNode?.actualProgress || 0;
-        // Overwrite the simple time-based planned progress with the more accurate schedule-based one.
-        plannedProgress = rootNode?.plannedProgress || 0;
-    } else if (project.type === 'agile') {
-        const totalTasks = project.kanbanTasks?.length || 0;
-        const doneTasks = project.kanbanTasks?.filter(t => t.status === 'Done').length || 0;
-        if (totalTasks > 0) {
-            actualProgress = (doneTasks / totalTasks) * 100;
-        }
-        enrichedData.totalTasks = totalTasks;
-        enrichedData.doneTasks = doneTasks;
-        enrichedData.todoTasks = project.kanbanTasks?.filter(t => t.status === 'To-Do').length || 0;
-        enrichedData.doingTasks = project.kanbanTasks?.filter(t => t.status === 'Doing').length || 0;
-    }
-
-    const performance = plannedProgress > 0 ? (actualProgress / plannedProgress) * 100 : (actualProgress > 0 ? 100 : 0);
-
-    return { ...project, plannedProgress, actualProgress, performance, ...enrichedData };
+/** The project with its progress figures, as the backend works them out (planned from the schedule or the dates, actual from the activities / tasks). */
+export const enrichProjectWithProgress = (project: Project, _calendars?: Calendar[]): EnrichedProject => {
+    const figures = project.progressFigures;
+    return {
+        ...project,
+        plannedProgress: figures?.plannedProgress ?? 0,
+        actualProgress: figures?.actualProgress ?? 0,
+        performance: figures?.performance ?? 0,
+        ...(project.type === 'agile' ? {
+            totalTasks: figures?.totalTasks ?? 0,
+            todoTasks: figures?.todoTasks ?? 0,
+            doingTasks: figures?.doingTasks ?? 0,
+            doneTasks: figures?.doneTasks ?? 0
+        } : {})
+    };
 };
 
 export const getCalendarDisplayName = (name: string, language: string): string => {
@@ -1231,162 +916,3 @@ export interface SCurveDataPoint {
     dayIndex: number;
 }
 
-export const calculateSCurveData = (
-    project: Project,
-    activities: ProjectActivity[] = [],
-    calendar?: Calendar,
-    language: string = 'fa'
-): SCurveDataPoint[] => {
-    const effectiveCal: Calendar = calendar || {
-        id: '1',
-        name: 'Default',
-        workingDays: [0, 1, 2, 3, 4],
-        workHoursPerDay: 8
-    };
-
-    // Ensure we have activities with CPM calculated start/end dates
-    let effectiveNodes = activities;
-    const hasCalculatedDates = activities && activities.some(a => (a.children && a.children.length > 0) || (a.startDate && a.endDate));
-    if (!hasCalculatedDates && project.schedule && project.schedule.length > 0) {
-        const { rootNode } = calculateScheduleTreeAndProgress(project, effectiveCal, project.weightingType, project.plannedProgressType);
-        if (rootNode) {
-            effectiveNodes = [rootNode];
-        }
-    }
-
-    const list: ProjectActivity[] = [];
-    const dive = (nodes: ProjectActivity[]) => {
-        nodes.forEach(node => {
-            if (node.id !== 'project-root') list.push(node);
-            if (node.children) dive(node.children);
-        });
-    };
-    dive(effectiveNodes && effectiveNodes.length > 0 ? effectiveNodes : (project.schedule || []));
-
-    if (list.length === 0) return [];
-    const validTasks = list.filter(t => t.startDate && t.endDate);
-
-    const projStart = project.startDate ? new Date(project.startDate) : (validTasks.length > 0 ? new Date(Math.min(...validTasks.map(t => new Date(t.startDate!).getTime()))) : new Date());
-    const projEnd = project.endDate ? new Date(project.endDate) : (validTasks.length > 0 ? new Date(Math.max(...validTasks.map(t => new Date(t.endDate!).getTime()))) : new Date());
-
-    const minDate = validTasks.length > 0 ? new Date(Math.min(...validTasks.map(t => new Date(t.startDate!).getTime()))) : projStart;
-    const maxDate = validTasks.length > 0 ? new Date(Math.max(...validTasks.map(t => new Date(t.endDate!).getTime()))) : projEnd;
-
-    const effectiveStart = minDate < projStart ? minDate : projStart;
-    const effectiveEnd = maxDate > projEnd ? maxDate : projEnd;
-
-    const totalDays = Math.max(1, Math.round((effectiveEnd.getTime() - effectiveStart.getTime()) / (1000 * 3600 * 24)) + 1);
-    const step = Math.max(1, Math.floor(totalDays / 30));
-    const rawPoints: { date: Date; dayIndex: number; dateLabel: string; isoDate: string }[] = [];
-
-    for (let i = 0; i <= totalDays; i += step) {
-        const d = new Date(effectiveStart);
-        d.setDate(effectiveStart.getDate() + i);
-        if (d > effectiveEnd && i < totalDays) {
-            d.setTime(effectiveEnd.getTime());
-        }
-
-        const dateLabel = language === 'fa' ? formatDate(d, 'fa') : formatDate(d, 'en');
-        const isoDate = d.toISOString().split('T')[0];
-
-        rawPoints.push({
-            date: d,
-            dayIndex: i,
-            dateLabel,
-            isoDate
-        });
-
-        if (d.getTime() === effectiveEnd.getTime()) break;
-    }
-
-    const lastRaw = rawPoints[rawPoints.length - 1];
-    if (!lastRaw || lastRaw.dayIndex !== totalDays) {
-        rawPoints.push({
-            date: effectiveEnd,
-            dayIndex: totalDays,
-            dateLabel: language === 'fa' ? formatDate(effectiveEnd, 'fa') : formatDate(effectiveEnd, 'en'),
-            isoDate: effectiveEnd.toISOString().split('T')[0]
-        });
-    }
-
-    const normalizeDateKey = (str: string): string => {
-        return (str || '')
-            .trim()
-            .replace(/[۰-۹]/g, d => "0123456789"["۰۱۲۳۴۵۶۷۸۹".indexOf(d)])
-            .replace(/[\/\.]/g, '-');
-    };
-
-    // Filter progress information snapshots
-    const progressSnapshots = (project.scheduleSnapshots || []).filter(s => s.type === 'Progress Information');
-    const snapshotMap = new Map<string, number>();
-
-    progressSnapshots.forEach(s => {
-        let val: number = 0;
-        if (typeof s.actualProgress === 'number') {
-            val = s.actualProgress;
-        } else {
-            const { rootNode } = calculateScheduleTreeAndProgress(
-                { ...project, schedule: s.schedule || [] },
-                effectiveCal,
-                project.weightingType,
-                project.plannedProgressType
-            );
-            val = Math.round((rootNode?.actualProgress || 0) * 10) / 10;
-        }
-        snapshotMap.set(s.name.trim(), val);
-        snapshotMap.set(normalizeDateKey(s.name), val);
-    });
-
-    let maxSnapshotDayIndex = -1;
-    if (progressSnapshots.length > 0) {
-        rawPoints.forEach(p => {
-            const key = normalizeDateKey(p.dateLabel);
-            if (snapshotMap.has(p.dateLabel.trim()) || snapshotMap.has(key)) {
-                if (p.dayIndex > maxSnapshotDayIndex) {
-                    maxSnapshotDayIndex = p.dayIndex;
-                }
-            }
-        });
-        if (maxSnapshotDayIndex === -1 && progressSnapshots.length > 0) {
-            maxSnapshotDayIndex = 0;
-        }
-    }
-
-    return rawPoints.map(p => {
-        const { rootNode } = calculateScheduleTreeAndProgress(
-            { ...project, schedule: list },
-            effectiveCal,
-            project.weightingType,
-            project.plannedProgressType,
-            p.date
-        );
-        const plannedProgress = Math.round((rootNode?.plannedProgress || 0) * 10) / 10;
-
-        const key = normalizeDateKey(p.dateLabel);
-        const hasDirectSnapshot = snapshotMap.has(p.dateLabel.trim()) || snapshotMap.has(key);
-        let actualProgress: number | null = null;
-        let hasActualSnapshot = false;
-
-        if (hasDirectSnapshot) {
-            actualProgress = snapshotMap.get(p.dateLabel.trim()) ?? snapshotMap.get(key) ?? 0;
-            hasActualSnapshot = true;
-        } else if (p.dayIndex === 0 && progressSnapshots.length > 0) {
-            actualProgress = 0;
-            hasActualSnapshot = true;
-        } else if (progressSnapshots.length > 0 && p.dayIndex <= maxSnapshotDayIndex) {
-            actualProgress = null;
-        } else {
-            actualProgress = null;
-        }
-
-        return {
-            dateLabel: p.dateLabel,
-            isoDate: p.isoDate,
-            date: p.date,
-            plannedProgress,
-            actualProgress,
-            hasActualSnapshot,
-            dayIndex: p.dayIndex
-        };
-    });
-};
