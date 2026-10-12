@@ -252,7 +252,7 @@ export const ProjectCharterForm = ({ projectData, setProjectData, users, calenda
         if (isReadOnly) return;
         const { name, value } = e.target;
         if (name === 'projectManagerId' || name === 'calendarId' || name === 'approver1Id') {
-            setProjectData({ ...projectData, [name]: value ? parseInt(value, 10) : null });
+            setProjectData({ ...projectData, [name]: value || null });
         } else if (name === 'sprintCount') {
             setProjectData({ ...projectData, [name]: parseInt(value, 10) || 1 });
         } else if (name === 'cost') {
@@ -519,7 +519,7 @@ export const ActionForm = ({
         }
     }, [actionData.responsibleUserId, actionData.approver1Id]);
 
-    const ownerUser = users.find(u => Number(u.id) === Number(actionData.ownerUserId)) || currentUser;
+    const ownerUser = users.find(u => String(u.id) === String(actionData.ownerUserId)) || currentUser;
     const ownerDisplayName = ownerUser ? (ownerUser.name ? `${ownerUser.name} (${ownerUser.username})` : ownerUser.username) : (isFa ? 'نامشخص' : 'Unknown');
 
     const recurrence = actionData.recurrence || {
@@ -546,7 +546,7 @@ export const ActionForm = ({
                 approver1Id: shouldSyncApprover1 ? newRespId : actionData.approver1Id
             });
         } else if (name === 'calendarId' || name.startsWith('approver') || name === 'projectId') {
-            setActionData({ ...actionData, [name]: value ? parseInt(value, 10) : null });
+            setActionData({ ...actionData, [name]: value || null });
         } else {
             setActionData({ ...actionData, [name]: value });
         }
@@ -588,10 +588,10 @@ export const ActionForm = ({
     const recurrenceSummary = getRecurrenceSummary(recurrence, isFa);
 
     // Selected user helpers for approver preview
-    const respUser = users.find(u => Number(u.id) === Number(actionData.responsibleUserId));
-    const appr1User = users.find(u => Number(u.id) === Number(actionData.approver1Id ?? actionData.responsibleUserId));
-    const appr2User = users.find(u => Number(u.id) === Number(actionData.approver2Id));
-    const appr3User = users.find(u => Number(u.id) === Number(actionData.approver3Id));
+    const respUser = users.find(u => String(u.id) === String(actionData.responsibleUserId));
+    const appr1User = users.find(u => String(u.id) === String(actionData.approver1Id ?? actionData.responsibleUserId));
+    const appr2User = users.find(u => String(u.id) === String(actionData.approver2Id));
+    const appr3User = users.find(u => String(u.id) === String(actionData.approver3Id));
 
     const getUserDisplayName = (u?: User | null) => {
         if (!u) return isFa ? 'تعیین‌نشده' : 'Unassigned';
@@ -1105,7 +1105,7 @@ export const ActionForm = ({
                                 React.createElement("option", { value: "" }, t('selectUser')),
                                 users.map(user => (
                                     React.createElement("option", { key: user.id, value: user.id },
-                                        `${user.name ? `${user.name} (${user.username})` : user.username}${Number(user.id) === Number(actionData.responsibleUserId) ? (isFa ? ' - (مسئول اقدام)' : ' - (Responsible)') : ''}`
+                                        `${user.name ? `${user.name} (${user.username})` : user.username}${String(user.id) === String(actionData.responsibleUserId) ? (isFa ? ' - (مسئول اقدام)' : ' - (Responsible)') : ''}`
                                     )
                                 ))
                             )

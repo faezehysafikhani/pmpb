@@ -15,7 +15,10 @@ import {
     PlannedProgressType, ScheduleSnapshot, VisibilitySettings, WorkflowEntityType, DEFAULT_DYNAMIC_WORKFLOW_SETTINGS, resolveWorkflowApproverId, DynamicWorkflowSettings,
     ProjectApprovalRecord, getEffectiveProjectWorkflowStages, isProjectTabCustomWorkflow, ProjectContract, ProjectInvoice
 } from '../types';
-import { pickCalendar, getISODateString, getISODateTimeString, enrichProjectWithProgress, calculateScheduleTreeAndProgress, formatDate, toPersianDigits, isProjectVisibleToUser, isActionVisibleToUser, getUnitLevel1And2, exportDashboardToLandscapePdf } from '../utils';
+import { useAuth } from '../directory/AuthContext';
+import { getRuntimeUnitTree } from '../services/backend/runtimeDirectory';
+import { projectErrorText } from '../services/backend/errors';
+import { pickCalendar, getISODateString, getISODateTimeString, enrichProjectWithProgress, calculateScheduleTreeAndProgress, formatDate, toPersianDigits, isActionVisibleToUser, getUnitLevel1And2, exportDashboardToLandscapePdf } from '../utils';
 import { 
     OrgChartModal,
     ProjectHistoryModal,
@@ -80,18 +83,19 @@ export const CreateProjectPage = ({ onNavigate }: { onNavigate: (page: string, c
 };
 
 // --- ProjectDetailsPage ---
-export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProject, onUpdateProject, onPartialUpdate, existingProject, calendars, setInfoModal, progressUpdates, onAddKanbanStatusUpdate, actions, owningUnits, projectStatuses, fromPage, initialTab, isProjectWorkflowEnabled, currentUser, defaultProjectApproverId, dynamicWorkflowSettings, onSaveAction, projects = [] }: { 
+export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProject, onUpdateProject, onCheckProject, onPartialUpdate, existingProject, calendars, setInfoModal, progressUpdates, onAddKanbanStatusUpdate, actions, owningUnits, projectStatuses, fromPage, initialTab, isProjectWorkflowEnabled, currentUser, defaultProjectApproverId, dynamicWorkflowSettings, onSaveAction, projects = [] }: { 
     projectType: ProjectType;
     users: User[];
     onNavigate: (page: string, context?: any) => void; 
     onSaveProject: (project: Project, mode: 'draft' | 'sent') => void;
     onUpdateProject: (project: Project, mode: 'draft' | 'sent', stayOnPage?: boolean) => void;
+    onCheckProject?: (project: Project) => Promise<{ ok: boolean; code?: string; message?: string }>;
     onPartialUpdate: (project: Project) => void;
     existingProject?: Project | null;
     calendars: Calendar[];
     setInfoModal: (modal: { title: string, message: string } | null) => void;
     progressUpdates: ProgressUpdate[];
-    onAddKanbanStatusUpdate?: (projectId: number, taskId: number, newStatus: KanbanStatus, comment: string) => void;
+    onAddKanbanStatusUpdate?: (projectId: string, taskId: number, newStatus: KanbanStatus, comment: string) => void;
     actions: ActionItem[];
     owningUnits: string[];
     projectStatuses: string[];
@@ -185,66 +189,17 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
         e.preventDefault();
         if (isValidatingCharter) return;
 
-        if (!projectData.name || !projectData.projectManagerId || !projectData.startDate || !projectData.endDate || !projectData.owningUnit || !projectData.goal?.trim() || !projectData.requirements?.trim()) {
-            setInfoModal({ 
-                title: t('error'), 
-                message: language === 'fa' 
-                    ? `تکمیل فیلدهای عنوان پروژه، مدیر پروژه، واحد متولی، تاریخ شروع/پایان، «هدف پروژه» و «الزامات پروژه» الزامی است.`
-                    : `Please fill in all required fields including Project Name, Manager, Unit, Dates, Goal, and Requirements.`
-            });
-            setActiveTab('charter');
-            return;
-        }
-
-        // 1. Date Validation (endDate > startDate)
-        const parseDateDigits = (str?: string) => {
-            if (!str) return 0;
-            return parseInt(str.replace(/[^\d]/g, ''), 10) || 0;
-        };
-        const startVal = parseDateDigits(projectData.startDate);
-        const endVal = parseDateDigits(projectData.endDate);
-
-        if (startVal > 0 && endVal > 0 && endVal <= startVal) {
-            const shamsiStart = formatDate(projectData.startDate, 'fa');
-            const shamsiEnd = formatDate(projectData.endDate, 'fa');
-            setInfoModal({ 
-                title: t('error'), 
-                message: language === 'fa' 
-                    ? `تاریخ پایان پروژه (${shamsiEnd}) باید حتماً بعد از تاریخ شروع پروژه (${shamsiStart}) باشد.`
-                    : `Project end date (${shamsiEnd}) must be strictly after the start date (${shamsiStart}).` 
-            });
-            setActiveTab('charter');
-            return;
-        }
-
-        // 2. Charter Content Validation (goal, requirements, constraints, description)
-        const checkInvalidText = (fieldLabel: string, text?: string) => {
-            if (!text || !text.trim()) return null;
-            const cleanText = text.trim().toLowerCase();
-            const junkPatterns = ['test', 'تست', 'asdf', 'qwer', '1234', '123456', 'aaaa', 'bbbb', 'xxxx', '....', '---'];
-            if (junkPatterns.some(p => cleanText === p) || cleanText.length < 4) {
-                return language === 'fa'
-                    ? `اطلاعات ثبت شده در "${fieldLabel}" معتبر نمی‌باشد. لطفاً توضیحات واقعی و مرتبط با عنوان پروژه (${projectData.name}) ثبت فرمایید.`
-                    : `Invalid or meaningless text in "${fieldLabel}". Please enter valid details related to project title (${projectData.name}).`;
+        // The backend decides whether this project is acceptable (required parts, dates, meaningful text, unique name); nothing is saved by the check.
+        if (onCheckProject) {
+            const checked = await onCheckProject(projectData as Project);
+            if (!checked.ok) {
+                setInfoModal({ title: t('error'), message: projectErrorText({ code: checked.code ?? '', message: checked.message ?? '' }, language, t('projectNameExists')) });
+                setActiveTab('charter');
+                return;
             }
-            return null;
-        };
-
-        const goalError = checkInvalidText(language === 'fa' ? 'هدف پروژه' : 'Project Goal', projectData.goal || (projectData as any).objective);
-        const reqError = checkInvalidText(language === 'fa' ? 'الزامات پروژه' : 'Project Requirements', projectData.requirements);
-        const constraintsError = checkInvalidText(language === 'fa' ? 'محدودیت‌ها و مفروضات' : 'Constraints & Assumptions', projectData.constraintsAndAssumptions);
-        const descError = checkInvalidText(language === 'fa' ? 'توضیحات' : 'Description', projectData.description);
-
-        if (goalError || reqError || constraintsError || descError) {
-            setInfoModal({
-                title: t('error'),
-                message: goalError || reqError || constraintsError || descError || ''
-            });
-            setActiveTab('charter');
-            return;
         }
 
-        // 3. AI Charter Validation
+        // AI charter validation (unchanged)
         setIsValidatingCharter(true);
         try {
             const valRes = await fetch('/api/ai/validate-charter', {
@@ -293,7 +248,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
         const selectedApprover = projectData.approver1Id || defaultProjectApproverId || defaultAdmin?.id || 1;
         
         if (!isEditing) { // Creating new
-            const baseProject = { id: Date.now(), ...projectData, approver1Id: selectedApprover };
+            const baseProject = { id: '', ...projectData, approver1Id: selectedApprover };
             if (action === 'save_draft') {
                 const draftProject = { ...baseProject, approvalStatus: 'Draft' } as Project;
                 onSaveProject(draftProject, 'draft');
@@ -383,7 +338,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                     action: 'Submitted' as const,
                     date: item.date || getISODateTimeString(),
                     actor: (() => {
-                        const u = users.find(usr => Number(usr.id) === Number(item.submittedBy));
+                        const u = users.find(usr => String(usr.id) === String(item.submittedBy));
                         return u ? (u.name ? `${u.name} (${u.username})` : u.username) : 'کاربر';
                     })(),
                     stageTitle: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission',
@@ -719,8 +674,8 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
 
     const isPMOrOwnerOrAdmin = !!(currentUser && (
         currentUser.role === 'Admin' ||
-        Number(projectData.projectManagerId) === Number(currentUser.id) ||
-        Number(projectData.ownerId || 1) === Number(currentUser.id)
+        String(projectData.projectManagerId) === String(currentUser.id) ||
+        String(projectData.ownerId || 1) === String(currentUser.id)
     ));
 
     const renderActiveTabContent = () => {
@@ -731,8 +686,8 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                 if (item.isApproved) return true;
                 const isSubmitter = currentUser && item.submittedBy === currentUser.id;
                 const isAdmin = currentUser?.role === 'Admin';
-                const isPM = currentUser && Number(projectData.projectManagerId) === Number(currentUser.id);
-                const isOwner = currentUser && Number(projectData.ownerId || 1) === Number(currentUser.id);
+                const isPM = currentUser && String(projectData.projectManagerId) === String(currentUser.id);
+                const isOwner = currentUser && String(projectData.ownerId || 1) === String(currentUser.id);
 
                 const entityKey = (tabId === 'status' ? 'status_updates' : tabId === 'delays' ? 'delay_reasons' : tabId === 'docs' ? 'documents' : tabId) as WorkflowEntityType;
                 const stages = getEffectiveProjectWorkflowStages(entityKey, projectData as Project, dynamicWorkflowSettings);
@@ -740,7 +695,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                 const stage = stages?.[currentStageIdx] || stages?.[0];
                 const resolvedApproverId = item.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, projectData as Project) : projectData.projectManagerId);
 
-                const isApprover = currentUser && Number(resolvedApproverId) === Number(currentUser.id);
+                const isApprover = currentUser && String(resolvedApproverId) === String(currentUser.id);
 
                 return isSubmitter || isAdmin || isPM || isOwner || isApprover;
             });
@@ -1188,7 +1143,7 @@ export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, on
     progressUpdates: ProgressUpdate[],
     owningUnits: string[],
     visibilitySettings?: VisibilitySettings,
-    onDeleteProject?: (id: number) => void,
+    onDeleteProject?: (id: string) => void,
     onDeleteAction?: (id: number) => void
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
@@ -1204,6 +1159,7 @@ export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, on
     const [historyModalProject, setHistoryModalProject] = useState<Project | null>(null);
     const [actionHistoryModalId, setActionHistoryModalId] = useState<number | null>(null);
     
+    const auth = useAuth();
     const defaultSettings: VisibilitySettings = {
         viewByOwner: true,
         viewByManagerOrResponsible: true,
@@ -1213,14 +1169,7 @@ export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, on
     };
     const activeVisibilitySettings = visibilitySettings || defaultSettings;
 
-    const unitNodes = useMemo(() => {
-        try {
-            const saved = localStorage.getItem('pms_owning_units_tree');
-            return saved ? JSON.parse(saved) : [];
-        } catch (e) {
-            return [];
-        }
-    }, []);
+    const unitNodes = useMemo(() => getRuntimeUnitTree(), []);
 
     const workStatusTranslations: Record<WorkStatus, TranslationKey> = {
         'Planning': 'planning', 'In Progress': 'inProgress', 'On Hold': 'onHold', 'Completed': 'completed'
@@ -1254,17 +1203,19 @@ export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, on
     const canEditProject = (project: Project) => {
         if (!currentUser) return false;
         if (currentUser.role === 'Admin') return true;
-        if (Number(project.projectManagerId) === Number(currentUser.id)) return true;
-        if (Number(project.ownerId || 1) === Number(currentUser.id)) return true;
-        if (project.teamMemberIds && project.teamMemberIds.map(Number).includes(Number(currentUser.id))) return true;
+        if (String(project.projectManagerId) === String(currentUser.id)) return true;
+        if (String(project.ownerId || 1) === String(currentUser.id)) return true;
+        if (project.teamMemberIds && project.teamMemberIds.map(String).includes(String(currentUser.id))) return true;
         return false;
     };
 
     const canDeleteProject = (project: Project) => {
         if (!currentUser) return false;
+        // Deleting for good is its own permission on the backend; the screen only hides the button when it is missing.
+        if (!auth.can('Projects.Remove')) return false;
         if (currentUser.role === 'Admin') return true;
-        if (Number(project.projectManagerId) === Number(currentUser.id)) return true;
-        if (Number(project.ownerId || 1) === Number(currentUser.id)) return true;
+        if (String(project.projectManagerId) === String(currentUser.id)) return true;
+        if (String(project.ownerId || 1) === String(currentUser.id)) return true;
         return false;
     };
     
@@ -1281,8 +1232,8 @@ export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, on
     // Filtered items
     const filteredProjects = useMemo(() => {
         const lowerCaseFilter = filterText.toLowerCase();
+        // `projects` are already only the ones the backend lets this user see.
         return projects
-            .filter(p => isProjectVisibleToUser(p, currentUser, activeVisibilitySettings, users, unitNodes))
             .filter(p => {
                 const nameMatch = filterText ? (p.name.toLowerCase().includes(lowerCaseFilter) || (p.code && p.code.toLowerCase().includes(lowerCaseFilter))) : true;
                 const unitMatch = unitFilter ? getUnitLevel1And2(p.owningUnit) === unitFilter : true;
@@ -1290,7 +1241,7 @@ export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, on
                 const typeMatch = typeFilter === 'all' ? true : (typeFilter === 'waterfall' ? p.type === 'waterfall' : typeFilter === 'agile' ? p.type === 'agile' : false);
                 return nameMatch && unitMatch && statusMatch && typeMatch;
             });
-    }, [projects, currentUser, activeVisibilitySettings, users, unitNodes, filterText, unitFilter, statusFilter, typeFilter]);
+    }, [projects, filterText, unitFilter, statusFilter, typeFilter]);
 
     const filteredActions = useMemo(() => {
         const lowerCaseFilter = filterText.toLowerCase();
@@ -1704,11 +1655,11 @@ export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, on
 };
 
 // --- DeleteProjectsPage ---
-export const DeleteProjectsPage = ({ projects, onDeleteProject, onNavigate }: { projects: Project[], onDeleteProject: (id: number) => void, onNavigate: (page: string) => void }): ReactElement => {
+export const DeleteProjectsPage = ({ projects, onDeleteProject, onNavigate }: { projects: Project[], onDeleteProject: (id: string) => void, onNavigate: (page: string) => void }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const backIcon = language === 'fa' ? 'arrow_forward' : 'arrow_back';
     
-    const handleDeleteClick = (projectId: number) => {
+    const handleDeleteClick = (projectId: string) => {
         if (window.confirm(t('confirmProjectDelete'))) {
             onDeleteProject(projectId);
         }
@@ -1862,7 +1813,7 @@ export const ProjectDashboardPage = ({ projects, actions = [], users, calendars,
             const nameMatch = nameFilter ? p.name.toLowerCase().includes(nameFilter.toLowerCase()) : true;
             const statusMatch = statusFilter ? p.status === statusFilter : true;
             const unitMatch = unitFilter ? getUnitLevel1And2(p.owningUnit) === unitFilter : true;
-            const pmMatch = pmFilter ? p.projectManagerId === parseInt(pmFilter) : true;
+            const pmMatch = pmFilter ? String(p.projectManagerId) === String(pmFilter) : true;
             return nameMatch && statusMatch && unitMatch && pmMatch;
         });
         

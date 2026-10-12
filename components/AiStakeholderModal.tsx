@@ -244,9 +244,9 @@ Each stakeholder must contain:
     const isOwnerOrPMOrAdmin = Boolean(
       isPMOrAdmin ||
       (currentUserId && (
-        Number(project.projectManagerId) === Number(currentUserId) ||
-        Number(project.ownerId || 1) === Number(currentUserId) ||
-        users?.find(u => Number(u.id) === Number(currentUserId))?.role === 'Admin'
+        String(project.projectManagerId) === String(currentUserId) ||
+        String(project.ownerId || 1) === String(currentUserId) ||
+        users?.find(u => String(u.id) === String(currentUserId))?.role === 'Admin'
       ))
     );
 
@@ -262,7 +262,7 @@ Each stakeholder must contain:
       }
     }
 
-    const currentUserObj = users?.find(u => Number(u.id) === Number(currentUserId));
+    const currentUserObj = users?.find(u => String(u.id) === String(currentUserId));
     const actorName = currentUserObj ? (currentUserObj.name ? `${currentUserObj.name} (${currentUserObj.username})` : currentUserObj.username) : (isFa ? 'کاربر' : 'User');
 
     const newStakeholders: ProjectStakeholder[] = generatedStakeholders.map((s, idx) => ({

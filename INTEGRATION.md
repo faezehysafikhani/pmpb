@@ -17,6 +17,12 @@ Plan and the list of backend additions: `docs/ui-integration/PLAN.md` in the bac
 * `services/backend/*.ts` - one typed file per backend area (`auth`, `directory`: users, roles, organisation chart, calendars).
 * `services/backend/mappers.ts` - shape adapters only (backend records -> the objects the screens use). No rules.
 * `directory/AuthContext.tsx`, `directory/DirectoryContext.tsx` - the session and the directory data; every change goes to the backend and the lists are read back.
+* `directory/ProjectsContext.tsx` - the projects the signed-in user may see (the backend decides which: `GET /api/portfolio/projects`), and create / update / status / submit / delete.
+  The backend owns a project's charter, people, unit, calendar, dates, status, team and approval state. The other parts a screen keeps inside the project object
+  (risks, stakeholders, status reports, documents, schedule, agile board, tab settings ...) are **not connected yet**: they are kept in this browser per project id
+  (`pms_project_extras`) until their own phase, and are the only project data left in local storage.
+* `services/backend/errors.ts` - the words (Persian / English) for the backend's project error codes. The rules themselves live in the backend.
+* `services/backend/runtimeDirectory.ts` - hands the backend-fed unit tree and calendars to plain helper functions that cannot use React context.
 * Ids are strings (the backend's GUIDs).
 
 ## Status per area
@@ -27,8 +33,10 @@ Plan and the list of backend additions: `docs/ui-integration/PLAN.md` in the bac
 | Users, roles, placement in the organisation chart | **connected** |
 | Organisation chart (reference tables page) | **connected** |
 | Work calendars (+ official holidays, work hours) | **connected** |
-| Project statuses list (reference tables page) | still local (phase 2) |
-| Projects, registers, schedule, agile, actions, contracts, strategy, knowledge, approvals, dashboards, reports | still the old local/mock data (phases 2-8) |
+| Projects: list, create, edit charter, team, work status, send for approval, delete (guarded), portfolio visibility | **connected** (phase 2) |
+| Project statuses list (reference tables page) | still local - needs a decision (the backend has a fixed status set) |
+| Risks, stakeholders, status reports, delay reasons, documents, schedule, agile, actions, contracts, strategy, knowledge, approval centre, dashboards, reports | still the old local/mock data (phases 3-8) |
 
+Approving a submitted project needs the approval centre (phase 7): until a workflow is defined for projects the backend approves a project as soon as it is sent.
 Until a phase is done, its screens still run on the mock data in `data.ts`/`localStorage` and may not work with real user ids.
 The AI features are not part of this work and are unchanged.

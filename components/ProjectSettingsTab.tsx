@@ -101,7 +101,7 @@ export const ProjectSettingsTab = ({
     const [expandedTabId, setExpandedTabId] = useState<string | null>(null);
 
     const projectOwnerId = project.ownerId || 1;
-    const isOwner = !!(currentUser && (Number(projectOwnerId) === Number(currentUser.id) || currentUser.role === 'Admin'));
+    const isOwner = !!(currentUser && (String(projectOwnerId) === String(currentUser.id) || currentUser.role === 'Admin'));
 
     useEffect(() => {
         setLocalWeightingType(project.weightingType || 'manual');
@@ -191,8 +191,8 @@ export const ProjectSettingsTab = ({
         setSnapshotName('');
     };
 
-    const pmUser = users.find(u => Number(u.id) === Number(project.projectManagerId));
-    const ownerUser = users.find(u => Number(u.id) === Number(project.ownerId));
+    const pmUser = users.find(u => String(u.id) === String(project.projectManagerId));
+    const ownerUser = users.find(u => String(u.id) === String(project.ownerId));
 
     return React.createElement("div", { className: "project-settings-tab", style: { display: 'flex', flexDirection: 'column', gap: '1.25rem' } },
         

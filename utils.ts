@@ -1,5 +1,6 @@
 
 
+import { getRuntimeUnitTree } from './services/backend/runtimeDirectory';
 import { Project, Calendar, ProjectActivity, EnrichedProject, PlannedProgressType, ActionItem, ActionRecurrence, User, VisibilitySettings, OwningUnitTreeNode } from './types';
 
 export const appLogoUrl = "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' width='512' height='512'%3E%3Crect width='512' height='512' rx='112' fill='%230f766e'/%3E%3Crect x='96' y='130' width='230' height='48' rx='24' fill='%23ffffff'/%3E%3Crect x='186' y='210' width='230' height='48' rx='24' fill='%23ffffff'/%3E%3Crect x='120' y='290' width='190' height='48' rx='24' fill='%23ffffff'/%3E%3Crect x='230' y='370' width='186' height='48' rx='24' fill='%23ffffff'/%3E%3C/svg%3E";
@@ -862,16 +863,7 @@ export const getUnitLevel2 = (unitName?: string | null, customTree?: OwningUnitT
   if (!trimmed) return '';
 
   let tree = customTree;
-  if (!tree) {
-    try {
-      const rawTree = typeof window !== 'undefined' ? localStorage.getItem('pms_owning_units_tree') : null;
-      if (rawTree) {
-        tree = JSON.parse(rawTree);
-      }
-    } catch (e) {
-      // ignore
-    }
-  }
+  if (!tree || tree.length === 0) tree = getRuntimeUnitTree();
   if (!tree || tree.length === 0) {
     tree = DEFAULT_OBS_TREE;
   }
@@ -957,70 +949,6 @@ export function isAncestorOrgUnit(headUnit: string, targetUnit: string, unitNode
     return false;
 }
 
-export function isProjectVisibleToUser(
-    project: Project,
-    currentUser: User | null,
-    visibilitySettings: VisibilitySettings,
-    users: User[],
-    unitNodes?: OwningUnitTreeNode[]
-): boolean {
-    if (!currentUser) return false;
-    if (currentUser.role === 'Admin') return true;
-
-    // 1. Owner
-    if (visibilitySettings.viewByOwner && project.ownerId && Number(project.ownerId) === Number(currentUser.id)) {
-        return true;
-    }
-
-    // 2. Project Manager
-    if (visibilitySettings.viewByManagerOrResponsible && project.projectManagerId && Number(project.projectManagerId) === Number(currentUser.id)) {
-        return true;
-    }
-
-    // 3. Approvers
-    if (visibilitySettings.viewByApprovers) {
-        if (project.approver1Id && Number(project.approver1Id) === Number(currentUser.id)) return true;
-        if (project.schedule && project.schedule.some(a => 
-            (a.approver1Id && Number(a.approver1Id) === Number(currentUser.id)) ||
-            (a.approver2Id && Number(a.approver2Id) === Number(currentUser.id)) ||
-            (a.approver3Id && Number(a.approver3Id) === Number(currentUser.id))
-        )) return true;
-        if (project.kanbanTasks && project.kanbanTasks.some(t => 
-            (t.approver1Id && Number(t.approver1Id) === Number(currentUser.id)) ||
-            (t.approver2Id && Number(t.approver2Id) === Number(currentUser.id)) ||
-            (t.approver3Id && Number(t.approver3Id) === Number(currentUser.id))
-        )) return true;
-    }
-
-    // 4. Resources
-    if (visibilitySettings.viewByResources) {
-        if (project.teamMemberIds && project.teamMemberIds.map(Number).includes(Number(currentUser.id))) return true;
-        if (project.schedule && project.schedule.some(a => a.assignedToId && Number(a.assignedToId) === Number(currentUser.id))) return true;
-        if (project.kanbanTasks && project.kanbanTasks.some(t => t.assignedToId && Number(t.assignedToId) === Number(currentUser.id))) return true;
-    }
-
-    // 5. Org Heads
-    if (visibilitySettings.viewByOrgHeads && currentUser.owningUnit) {
-        const userUnit = currentUser.owningUnit;
-        const relatedUnits = new Set<string>();
-        if (project.owningUnit) relatedUnits.add(project.owningUnit);
-
-        const ownerUser = users.find(u => Number(u.id) === Number(project.ownerId));
-        if (ownerUser?.owningUnit) relatedUnits.add(ownerUser.owningUnit);
-
-        const pmUser = users.find(u => Number(u.id) === Number(project.projectManagerId));
-        if (pmUser?.owningUnit) relatedUnits.add(pmUser.owningUnit);
-
-        for (const targetUnit of relatedUnits) {
-            if (isAncestorOrgUnit(userUnit, targetUnit, unitNodes)) {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
 export function isActionVisibleToUser(
     action: ActionItem,
     currentUser: User | null,
@@ -1032,24 +960,24 @@ export function isActionVisibleToUser(
     if (currentUser.role === 'Admin') return true;
 
     // 1. Owner
-    if (visibilitySettings.viewByOwner && action.ownerUserId && Number(action.ownerUserId) === Number(currentUser.id)) {
+    if (visibilitySettings.viewByOwner && action.ownerUserId && String(action.ownerUserId) === String(currentUser.id)) {
         return true;
     }
 
     // 2. Responsible
-    if (visibilitySettings.viewByManagerOrResponsible && action.responsibleUserId && Number(action.responsibleUserId) === Number(currentUser.id)) {
+    if (visibilitySettings.viewByManagerOrResponsible && action.responsibleUserId && String(action.responsibleUserId) === String(currentUser.id)) {
         return true;
     }
 
     // 3. Approvers
     if (visibilitySettings.viewByApprovers) {
-        if (action.approver1Id && Number(action.approver1Id) === Number(currentUser.id)) return true;
-        if (action.approver2Id && Number(action.approver2Id) === Number(currentUser.id)) return true;
-        if (action.approver3Id && Number(action.approver3Id) === Number(currentUser.id)) return true;
+        if (action.approver1Id && String(action.approver1Id) === String(currentUser.id)) return true;
+        if (action.approver2Id && String(action.approver2Id) === String(currentUser.id)) return true;
+        if (action.approver3Id && String(action.approver3Id) === String(currentUser.id)) return true;
     }
 
     // 4. Resources (responsible is the primary resource)
-    if (visibilitySettings.viewByResources && action.responsibleUserId && Number(action.responsibleUserId) === Number(currentUser.id)) {
+    if (visibilitySettings.viewByResources && action.responsibleUserId && String(action.responsibleUserId) === String(currentUser.id)) {
         return true;
     }
 
@@ -1059,10 +987,10 @@ export function isActionVisibleToUser(
         const relatedUnits = new Set<string>();
         if (action.owningUnit) relatedUnits.add(action.owningUnit);
 
-        const ownerUser = users.find(u => Number(u.id) === Number(action.ownerUserId));
+        const ownerUser = users.find(u => String(u.id) === String(action.ownerUserId));
         if (ownerUser?.owningUnit) relatedUnits.add(ownerUser.owningUnit);
 
-        const respUser = users.find(u => Number(u.id) === Number(action.responsibleUserId));
+        const respUser = users.find(u => String(u.id) === String(action.responsibleUserId));
         if (respUser?.owningUnit) relatedUnits.add(respUser.owningUnit);
 
         for (const targetUnit of relatedUnits) {

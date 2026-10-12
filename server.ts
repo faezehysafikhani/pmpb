@@ -1505,6 +1505,9 @@ ${JSON.stringify(dbSummary.users || [], null, 2)}
     }
   });
 
+  // AI routes are answered above by this server only; an AI route that does not exist here is not the backend's business.
+  app.use("/api/ai", (_req, res) => res.status(404).json({ error: "Unknown AI route" }));
+
   // Everything under /api that is not an AI route belongs to the .NET backend: this server only forwards it.
   // (The browser always talks to this origin, so there are no CORS problems and the backend address stays server-side.)
   const BACKEND_TARGET = (process.env.BACKEND_URL || "http://localhost:5251").replace(/\/+$/, "");

@@ -569,7 +569,7 @@ export const InvoiceModal = ({
 
     if (!isOpen) return null;
 
-    const selectedContract = contracts.find(c => Number(c.id) === Number(contractId));
+    const selectedContract = contracts.find(c => String(c.id) === String(contractId));
 
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
@@ -1356,7 +1356,7 @@ export const ProjectInvoicesTab = ({
                             </tr>
                         ) : (
                             filteredInvoices.map((inv, idx) => {
-                                const linkedContract = contracts.find(c => Number(c.id) === Number(inv.contractId));
+                                const linkedContract = contracts.find(c => String(c.id) === String(inv.contractId));
                                 return (
                                     <tr key={inv.id}>
                                         <td style={{ padding: '0.45rem 0.6rem' }}>{isFa ? toPersianDigits(idx + 1) : (idx + 1)}</td>

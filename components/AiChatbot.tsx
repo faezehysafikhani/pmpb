@@ -110,7 +110,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
   const [projName, setProjName] = useState('');
   const [projType, setProjType] = useState<'waterfall' | 'agile'>('waterfall');
   const [projUnit, setProjUnit] = useState(owningUnits[0] || 'فناوری اطلاعات');
-  const [projManagerId, setProjManagerId] = useState<number>(currentUser?.id || users[0]?.id || 1);
+  const [projManagerId, setProjManagerId] = useState<string>(String(currentUser?.id || users[0]?.id || ''));
   const [projStartDate, setProjStartDate] = useState(getISODateString());
   const [projEndDate, setProjEndDate] = useState(getISODateString());
   const [projCost, setProjCost] = useState('');
@@ -121,22 +121,22 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
   // Quick Action Form State
   const [actTitle, setActTitle] = useState('');
   const [actDesc, setActDesc] = useState('');
-  const [actUser, setActUser] = useState<number>(currentUser?.id || users[0]?.id || 1);
+  const [actUser, setActUser] = useState<string>(String(currentUser?.id || users[0]?.id || ''));
   const [actUnit, setActUnit] = useState(owningUnits[0] || 'سازمانی');
   const [actStart, setActStart] = useState(getISODateString());
   const [actEnd, setActEnd] = useState(getISODateString());
-  const [actProjectId, setActProjectId] = useState<number | undefined>(undefined);
+  const [actProjectId, setActProjectId] = useState<string | undefined>(undefined);
   const [actStatus, setActStatus] = useState<'Planning' | 'In Progress' | 'On Hold' | 'Completed'>('Planning');
 
   // Quick WBS/Activities Form State
-  const [wbsProjectId, setWbsProjectId] = useState<number>(projects[0]?.id || 0);
+  const [wbsProjectId, setWbsProjectId] = useState<string>(projects[0]?.id || '');
   const [wbsName, setWbsName] = useState('');
   const [wbsDuration, setWbsDuration] = useState('7');
   const [wbsWeight, setWbsWeight] = useState('20');
-  const [wbsAssigned, setWbsAssigned] = useState<number>(currentUser?.id || users[0]?.id || 1);
+  const [wbsAssigned, setWbsAssigned] = useState<string>(String(currentUser?.id || users[0]?.id || ''));
 
   // Quick Project Details Form State (Team, Risk, Status, Delay)
-  const [detProjectId, setDetProjectId] = useState<number>(projects[0]?.id || 0);
+  const [detProjectId, setDetProjectId] = useState<string>(projects[0]?.id || '');
   const [detTab, setDetTab] = useState<'team' | 'risk' | 'status' | 'delay'>('team');
   const [detSelectedTeam, setDetSelectedTeam] = useState<number[]>([]);
   const [detRiskDesc, setDetRiskDesc] = useState('');
@@ -224,7 +224,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
   // Helper functions
   const getManagerName = (id: string | null | undefined) => {
     if (!id) return 'تعیین نشده';
-    const u = users.find(user => Number(user.id) === Number(id));
+    const u = users.find(user => String(user.id) === String(id));
     return u ? u.username : `کاربر ${id}`;
   };
 
@@ -252,12 +252,12 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
   const executeProjectCreation = (actionData: any) => {
     const pType: 'waterfall' | 'agile' = actionData.type === 'agile' ? 'agile' : 'waterfall';
     const newProj: Project = {
-      id: Date.now(),
+      id: String(Date.now()),
       type: pType,
       approvalStatus: 'Approved',
       name: actionData.name || 'پروژه جدید',
       owningUnit: actionData.owningUnit || owningUnits[0] || 'فناوری اطلاعات',
-      projectManagerId: actionData.projectManagerId ? Number(actionData.projectManagerId) : (currentUser?.id || users[0]?.id || 1),
+      projectManagerId: actionData.projectManagerId ? String(actionData.projectManagerId) : (currentUser?.id || users[0]?.id || 1),
       startDate: actionData.startDate || getISODateString(),
       endDate: actionData.endDate || getISODateString(),
       status: 'In Progress',
@@ -267,7 +267,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
       cost: Number(toEnglishDigits(actionData.cost)) || 0,
       calendarId: '1',
       weightingType: actionData.weightingType || 'manual',
-      teamMemberIds: Array.isArray(actionData.teamMemberIds) ? actionData.teamMemberIds.map(Number) : [currentUser?.id || 1],
+      teamMemberIds: Array.isArray(actionData.teamMemberIds) ? actionData.teamMemberIds.map(String) : [currentUser?.id || 1],
       risks: Array.isArray(actionData.risks) ? actionData.risks.map((r: any, idx: number) => ({
         id: Date.now() + idx,
         description: typeof r === 'string' ? r : (r.description || 'ریسک شناسایی شده'),
@@ -292,7 +292,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
         name: act.name || 'فعالیت WBS',
         duration: Number(act.duration) || 5,
         weight: Number(act.weight) || 20,
-        assignedToId: act.assignedToId ? Number(act.assignedToId) : (currentUser?.id || 1),
+        assignedToId: act.assignedToId ? String(act.assignedToId) : (currentUser?.id || 1),
         actualProgress: 0,
         parentId: act.parentId || null,
         prerequisiteId: act.prerequisiteId || null
@@ -306,7 +306,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
         description: kt.description || kt.title || 'تسک چابک',
         status: kt.status || 'To-Do',
         priority: kt.priority || 'Medium',
-        assignedToId: kt.assignedToId ? Number(kt.assignedToId) : (currentUser?.id || 1),
+        assignedToId: kt.assignedToId ? String(kt.assignedToId) : (currentUser?.id || 1),
         dueDate: kt.dueDate || getISODateString()
       })) : [
         { id: Date.now() + 1, description: 'تحلیل استوری‌ها و نیازمندی‌های اسپرینت', status: 'To-Do', priority: 'High', assignedToId: currentUser?.id || 1, dueDate: getISODateString() },
@@ -326,14 +326,14 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
       id: Date.now(),
       title: actionData.title || 'اقدام جدید',
       description: actionData.description || actionData.title || 'اقدام ثبت شده توسط دستیار هوشمند',
-      responsibleUserId: actionData.responsibleUserId ? Number(actionData.responsibleUserId) : (currentUser?.id || users[0]?.id || 1),
+      responsibleUserId: actionData.responsibleUserId ? String(actionData.responsibleUserId) : (currentUser?.id || users[0]?.id || 1),
       approver1Id: '1',
       status: actionData.status || 'Planning',
       calendarId: '1',
       startDate: actionData.startDate || getISODateString(),
       endDate: actionData.endDate || getISODateString(),
       owningUnit: actionData.owningUnit || owningUnits[0] || 'سازمانی',
-      projectId: actionData.projectId ? Number(actionData.projectId) : undefined
+      projectId: actionData.projectId ? String(actionData.projectId) : undefined
     };
 
     if (onAddAction) {
@@ -774,7 +774,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
             linkPage: 'main'
           };
         } else if (data.actionToPerform === 'ADD_ACTIVITIES' && data.actionData) {
-          const targetProj = projects.find(p => p.id === Number(data.actionData.projectId)) || projects.find(p => p.name.includes(data.actionData.projectName || ''));
+          const targetProj = projects.find(p => String(p.id) === String(data.actionData.projectId)) || projects.find(p => p.name.includes(data.actionData.projectName || ''));
           if (targetProj && onUpdateProject) {
             let updatedProj = { ...targetProj };
             if (targetProj.type === 'waterfall' && Array.isArray(data.actionData.schedule)) {
@@ -783,7 +783,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                 name: act.name || 'فعالیت WBS',
                 duration: Number(act.duration) || 5,
                 weight: Number(act.weight) || 10,
-                assignedToId: act.assignedToId ? Number(act.assignedToId) : (currentUser?.id || 1),
+                assignedToId: act.assignedToId ? String(act.assignedToId) : (currentUser?.id || 1),
                 actualProgress: 0,
                 parentId: null,
                 prerequisiteId: null
@@ -795,7 +795,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                 description: kt.description || kt.title || 'تسک چابک',
                 status: kt.status || 'To-Do',
                 priority: kt.priority || 'Medium',
-                assignedToId: kt.assignedToId ? Number(kt.assignedToId) : (currentUser?.id || 1),
+                assignedToId: kt.assignedToId ? String(kt.assignedToId) : (currentUser?.id || 1),
                 dueDate: kt.dueDate || getISODateString()
               }));
               updatedProj.kanbanTasks = [...(updatedProj.kanbanTasks || []), ...newTasks];
@@ -810,11 +810,11 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
             };
           }
         } else if (data.actionToPerform === 'ADD_PROJECT_DETAILS' && data.actionData) {
-          const targetProj = projects.find(p => p.id === Number(data.actionData.projectId)) || projects[0];
+          const targetProj = projects.find(p => String(p.id) === String(data.actionData.projectId)) || projects[0];
           if (targetProj && onUpdateProject) {
             let updatedProj = { ...targetProj };
             if (Array.isArray(data.actionData.teamMemberIds)) {
-              updatedProj.teamMemberIds = Array.from(new Set([...updatedProj.teamMemberIds, ...data.actionData.teamMemberIds.map(Number)]));
+              updatedProj.teamMemberIds = Array.from(new Set([...updatedProj.teamMemberIds, ...data.actionData.teamMemberIds.map(String)]));
             }
             if (Array.isArray(data.actionData.risks)) {
               const newRisks: ProjectRisk[] = data.actionData.risks.map((r: any, idx: number) => ({
@@ -1817,7 +1817,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <div style={{ flex: 1 }}>
                         <label style={{ display: 'block', marginBottom: '2px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#1e293b' }}>مدیر پروژه</label>
-                        <select value={projManagerId} onChange={e => setProjManagerId(Number(e.target.value))} style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f1f5f9' : '#1e293b' }}>
+                        <select value={projManagerId} onChange={e => setProjManagerId(e.target.value)} style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f1f5f9' : '#1e293b' }}>
                           {users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
                         </select>
                       </div>
@@ -1862,7 +1862,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <div style={{ flex: 1 }}>
                         <label style={{ display: 'block', marginBottom: '2px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#1e293b' }}>مسئول اقدام</label>
-                        <select value={actUser} onChange={e => setActUser(Number(e.target.value))} style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f1f5f9' : '#1e293b' }}>
+                        <select value={actUser} onChange={e => setActUser(e.target.value)} style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f1f5f9' : '#1e293b' }}>
                           {users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
                         </select>
                       </div>
@@ -1886,7 +1886,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <div style={{ flex: 1 }}>
                         <label style={{ display: 'block', marginBottom: '2px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#1e293b' }}>پروژه مرتبط (اختیاری)</label>
-                        <select value={actProjectId || ''} onChange={e => setActProjectId(e.target.value ? Number(e.target.value) : undefined)} style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f1f5f9' : '#1e293b' }}>
+                        <select value={actProjectId || ''} onChange={e => setActProjectId(e.target.value || undefined)} style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f1f5f9' : '#1e293b' }}>
                           <option value="">بدون ارتباط به پروژه خاص</option>
                           {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                         </select>
@@ -1921,7 +1921,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                   <form onSubmit={handleSaveWbsForm} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     <div>
                       <label style={{ display: 'block', marginBottom: '2px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#1e293b' }}>انتخاب پروژه *</label>
-                      <select value={wbsProjectId} onChange={e => setWbsProjectId(Number(e.target.value))} style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f1f5f9' : '#1e293b' }}>
+                      <select value={wbsProjectId} onChange={e => setWbsProjectId(e.target.value)} style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f1f5f9' : '#1e293b' }}>
                         {projects.map(p => <option key={p.id} value={p.id}>{p.name} ({p.type === 'agile' ? 'چابک' : 'آبشاری'})</option>)}
                       </select>
                     </div>
@@ -1940,7 +1940,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
                       </div>
                       <div style={{ flex: 1 }}>
                         <label style={{ display: 'block', marginBottom: '2px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#1e293b' }}>مسئول</label>
-                        <select value={wbsAssigned} onChange={e => setWbsAssigned(Number(e.target.value))} style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f1f5f9' : '#1e293b' }}>
+                        <select value={wbsAssigned} onChange={e => setWbsAssigned(e.target.value)} style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f1f5f9' : '#1e293b' }}>
                           {users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
                         </select>
                       </div>
@@ -1962,7 +1962,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
 
                   <div style={{ marginBottom: '0.5rem' }}>
                     <label style={{ display: 'block', marginBottom: '2px', fontWeight: 600, color: isDark ? '#cbd5e1' : '#1e293b' }}>انتخاب پروژه *</label>
-                    <select value={detProjectId} onChange={e => setDetProjectId(Number(e.target.value))} style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f1f5f9' : '#1e293b' }}>
+                    <select value={detProjectId} onChange={e => setDetProjectId(e.target.value)} style={{ width: '100%', padding: '0.35rem 0.5rem', borderRadius: '6px', border: isDark ? '1px solid #334155' : '1px solid #cbd5e1', backgroundColor: isDark ? '#0f172a' : '#ffffff', color: isDark ? '#f1f5f9' : '#1e293b' }}>
                       {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>

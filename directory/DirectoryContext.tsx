@@ -3,6 +3,7 @@ import type { Calendar, OwningUnitTreeNode, User, UserRole } from '../types';
 import { useAuth } from './AuthContext';
 import { calendars as calendarsApi, organization, roles as rolesApi, users as usersApi } from '../services/backend/directory';
 import type { BackendRole, BackendUnit } from '../services/backend/directory';
+import { setRuntimeDirectory } from '../services/backend/runtimeDirectory';
 import { toCalendarBody, toUiCalendar, toUiUser, toUnitNodes, UI_ROLE_TO_BACKEND_ROLE } from '../services/backend/mappers';
 
 export interface Outcome {
@@ -42,6 +43,9 @@ interface DirectoryState {
   /** Active organisation units as a tree, and as the full paths the old unit pickers work with. */
   unitNodes: OwningUnitTreeNode[];
   unitPaths: string[];
+  /** Unit id <-> full path, for screens that store a unit as its path. */
+  unitIdByPath: Map<string, string>;
+  unitPathById: Map<string, string>;
   reload: () => Promise<void>;
 
   createUser: (form: NewUserForm) => Promise<Outcome>;
@@ -101,7 +105,12 @@ export const DirectoryProvider = ({ children }: { children: React.ReactNode }) =
     }
   }, [session, reload]);
 
+  // Publish what was read, for the plain helper functions that cannot use context (see runtimeDirectory).
+  const unitNodesNow = React.useMemo(() => toUnitNodes(units), [units]);
+  setRuntimeDirectory({ unitNodes: unitNodesNow, calendars });
+
   const unitIdByPath = React.useMemo(() => new Map(units.map(u => [u.path ?? u.name, u.id])), [units]);
+  const unitPathById = React.useMemo(() => new Map(units.map(u => [u.id, u.path ?? u.name])), [units]);
   const roleIdByName = React.useMemo(() => new Map(roles.map(r => [r.name, r.id])), [roles]);
 
   /** Runs a backend call, then refreshes. A failed call reports the backend's own message. */
@@ -133,6 +142,8 @@ export const DirectoryProvider = ({ children }: { children: React.ReactNode }) =
     calendars,
     unitNodes: toUnitNodes(units),
     unitPaths: units.map(u => u.path ?? u.name),
+    unitIdByPath,
+    unitPathById,
     reload,
 
     createUser: async form => {
@@ -177,7 +188,7 @@ export const DirectoryProvider = ({ children }: { children: React.ReactNode }) =
     saveCalendar: calendar => run(() =>
       calendar.id ? calendarsApi.update(calendar.id, toCalendarBody(calendar)) : calendarsApi.create(tenantId!, toCalendarBody(calendar))),
     deleteCalendar: id => run(() => calendarsApi.remove(id))
-  }), [loading, error, users, calendars, units, tenantId, reload, run, applyRoleAndUnit]);
+  }), [loading, error, users, calendars, units, unitIdByPath, unitPathById, tenantId, reload, run, applyRoleAndUnit]);
 
   return <DirectoryContext.Provider value={value}>{children}</DirectoryContext.Provider>;
 };

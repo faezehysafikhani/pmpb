@@ -843,7 +843,7 @@ export const TaskSubmissionModal = ({ task, progress, onSave, onClose }: {
 
 export const ActivityHistoryModal = ({ activityId, projectId, users, progressUpdates, onClose }: {
     activityId: string;
-    projectId: number;
+    projectId: string;
     users: User[];
     progressUpdates: ProgressUpdate[];
     onClose: () => void;
@@ -907,7 +907,7 @@ export const ActivityHistoryModal = ({ activityId, projectId, users, progressUpd
                                 ),
                                 React.createElement("tbody", null,
                                     history.flatMap((item, updateIdx) => {
-                                        const submitter = users.find(u => Number(u.id) === Number(item.submittedBy));
+                                        const submitter = users.find(u => String(u.id) === String(item.submittedBy));
                                         const submitterLabel = submitter ? (submitter.name ? `${submitter.name} (${submitter.username})` : submitter.username) : 'N/A';
                                         const hasDiff = item.approvedProgress !== undefined && item.submittedProgress !== undefined && item.approvedProgress !== item.submittedProgress;
 
@@ -978,7 +978,7 @@ export const ActivityHistoryModal = ({ activityId, projectId, users, progressUpd
 
 export const KanbanHistoryModal = ({ taskId, projectId, users, progressUpdates, onClose, projects }: {
     taskId: number;
-    projectId: number;
+    projectId: string;
     users: User[];
     projects: Project[];
     progressUpdates: ProgressUpdate[];
@@ -1047,7 +1047,7 @@ export const KanbanHistoryModal = ({ taskId, projectId, users, progressUpdates, 
                                 ),
                                 React.createElement("tbody", null,
                                     history.flatMap(item => {
-                                        const submitter = users.find(u => Number(u.id) === Number(item.submittedBy));
+                                        const submitter = users.find(u => String(u.id) === String(item.submittedBy));
                                         const submitterLabel = submitter ? (submitter.name ? `${submitter.name} (${submitter.username})` : submitter.username) : 'N/A';
                                         const updateDescription = item.submittedTask 
                                             ? `${t('createKanbanActivity')}: "${item.submittedTask.description}"`
@@ -3152,7 +3152,7 @@ export const ActionHistoryModal = ({ actionId, users, progressUpdates, actions, 
                                     React.createElement("th", null, isFa ? 'علت و نظر تاییدکننده' : 'Approver Comment / Reason')
                                 )),
                                 React.createElement("tbody", null, history.flatMap(item => {
-                                    const submitter = users.find(u => Number(u.id) === Number(item.submittedBy));
+                                    const submitter = users.find(u => String(u.id) === String(item.submittedBy));
                                     const submitterLabel = submitter ? (submitter.name ? `${submitter.name} (${submitter.username})` : submitter.username) : 'N/A';
                                     const change = `${t(workStatusTranslations[item.currentStatus as WorkStatus])} -> ${t(workStatusTranslations[item.submittedStatus as WorkStatus])}`;
                                     
@@ -3207,7 +3207,7 @@ export const TabItemHistoryModal = ({ itemTitle, itemTypeLabel, approvalHistory,
     const { language } = useContext(LocalizationContext);
     const isFa = language === 'fa';
 
-    const submitter = users.find(u => Number(u.id) === Number(submittedBy));
+    const submitter = users.find(u => String(u.id) === String(submittedBy));
     const submitterName = submitter ? (submitter.name ? `${submitter.name} (${submitter.username})` : submitter.username) : (isFa ? 'نامشخص' : 'Unknown');
 
     const records = useMemo(() => {
@@ -3419,7 +3419,7 @@ export const ApprovalHistoryModal = ({ progressUpdates, projects, actions, users
                 React.createElement("tbody", null,
                     items.length > 0 ? items.flatMap(({ project, item }) => {
                         const title = item.description || item.name || item.title || '-';
-                        const submitterObj = users.find(u => Number(u.id) === Number(item.submittedBy));
+                        const submitterObj = users.find(u => String(u.id) === String(item.submittedBy));
                         const submitterLabel = submitterObj ? (submitterObj.name ? `${submitterObj.name} (${submitterObj.username})` : submitterObj.username) : '-';
                         
                         const history = item.approvalHistory && item.approvalHistory.length > 0

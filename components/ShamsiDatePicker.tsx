@@ -1,3 +1,4 @@
+import { getRuntimeCalendars } from '../services/backend/runtimeDirectory';
 import React, { useState, useEffect, useRef, useContext, ReactElement } from 'react';
 import { LocalizationContext } from '../context';
 import { toJalali, toGregorian, toPersianDigits, getOfficialHolidayReason } from '../utils';
@@ -39,20 +40,10 @@ export const ShamsiDatePicker: React.FC<ShamsiDatePickerProps> = ({
   const [openUpwards, setOpenUpwards] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Load calendars from localStorage to identify active calendar holidays
+  // The calendars the backend holds (to show which days are holidays).
   const calendars: Calendar[] = React.useMemo(() => {
-    try {
-      const saved = localStorage.getItem('pms_calendars');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-    return [{ id: 1, name: 'Default', isDefault: true, workingDays: [6, 0, 1, 2, 3], specificHolidays: [] }];
+    const loaded = getRuntimeCalendars();
+    return loaded.length > 0 ? loaded : [{ id: '', name: 'Default', isDefault: true, workingDays: [6, 0, 1, 2, 3], specificHolidays: [] }];
   }, []);
 
   // Current view month & year in Jalali

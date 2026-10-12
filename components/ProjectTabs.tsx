@@ -24,7 +24,7 @@ export { ProjectSettingsTab } from './ProjectSettingsTab';
 
 
 export const ProjectActionsTab = ({ projectId, actions, users, onNavigate, isReadOnly = false }: {
-    projectId: number;
+    projectId: string;
     actions: ActionItem[];
     users: User[];
     onNavigate: (page: string, context: any) => void;
@@ -840,12 +840,12 @@ export const ProjectRisksTab = ({
                                     const currentStageIdx = risk.currentStageIndex ?? 0;
                                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                                     const effectiveApproverId = risk.currentApproverId ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
-                                    const approverUser = users?.find(u => Number(u.id) === Number(effectiveApproverId));
+                                    const approverUser = users?.find(u => String(u.id) === String(effectiveApproverId));
                                     const approverDisplay = approverUser 
                                         ? (approverUser.name ? `${approverUser.name} (${approverUser.username})` : approverUser.username)
                                         : (stage?.approverId === 'ROLE_PM' ? (language === 'fa' ? 'مدیر پروژه' : 'Project Manager') : stage?.approverId === 'ROLE_OWNER' ? (language === 'fa' ? 'مالک پروژه' : 'Project Owner') : '-');
 
-                                    const isCurrentApprover = currentUserId && Number(effectiveApproverId) === Number(currentUserId);
+                                    const isCurrentApprover = currentUserId && String(effectiveApproverId) === String(currentUserId);
                                     const canApproveThisRisk = isPMOrAdmin || isCurrentApprover;
 
                                     // Dynamic Row Highlighting based on Probability & Impact matrix cell color
@@ -864,7 +864,7 @@ export const ProjectRisksTab = ({
                                         React.createElement("td", null, React.createElement(RiskLevelBadge, { level: risk.impact, isFa: language === 'fa' })),
                                         React.createElement("td", { style: { fontWeight: 500 } }, risk.responsePlan),
                                         React.createElement("td", null, risk.assignedTo),
-                                        React.createElement("td", null, users?.find(u => Number(u.id) === Number(risk.submittedBy))?.username || '-'),
+                                        React.createElement("td", null, users?.find(u => String(u.id) === String(risk.submittedBy))?.username || '-'),
                                         React.createElement("td", null, approverDisplay),
                                         !hideApprovalStatus && React.createElement("td", { style: { textAlign: 'center' } },
                                             isPending && React.createElement("span", { className: "badge badge-yellow", style: { display: 'inline-block', fontSize: '0.75rem', padding: '4px 10px', borderRadius: '9999px', backgroundColor: '#fef3c7', color: '#d97706', fontWeight: 500, whiteSpace: 'nowrap' } }, language === 'fa' ? 'در انتظار تایید' : 'Pending Approval'),
@@ -1465,10 +1465,10 @@ export const ProjectStakeholdersTab = ({
                                 const currentStageIdx = sh.currentStageIndex ?? 0;
                                 const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                                 const effectiveApproverId = sh.currentApproverId ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
-                                const approverUser = users?.find(u => Number(u.id) === Number(effectiveApproverId));
+                                const approverUser = users?.find(u => String(u.id) === String(effectiveApproverId));
                                 const approverDisplay = approverUser ? (approverUser.name ? `${approverUser.name} (${approverUser.username})` : approverUser.username) : '-';
                                 const canApproveThisItem = currentUserId && (
-                                    Number(effectiveApproverId) === Number(currentUserId) || isPMOrAdmin
+                                    String(effectiveApproverId) === String(currentUserId) || isPMOrAdmin
                                 );
 
                                 const pVal = sh.power === 'Low' ? 'Low' : 'High';
@@ -1502,7 +1502,7 @@ export const ProjectStakeholdersTab = ({
                                         React.createElement("span", { className: `stakeholder-strategy-badge ${strategyClass}` }, strategyText)
                                     ),
                                     React.createElement("td", { style: { lineHeight: 1.4, color: 'var(--text-color, #1e293b)' } }, sh.requirements || '-'),
-                                    React.createElement("td", null, users?.find(u => Number(u.id) === Number(sh.submittedBy))?.username || '-'),
+                                    React.createElement("td", null, users?.find(u => String(u.id) === String(sh.submittedBy))?.username || '-'),
                                     React.createElement("td", null, approverDisplay),
                                     !hideApprovalStatus && React.createElement("td", { style: { textAlign: 'center' } },
                                         isPending && React.createElement("span", { className: "badge badge-yellow", style: { display: 'inline-block', fontSize: '0.75rem', padding: '4px 10px', borderRadius: '9999px', backgroundColor: '#fef3c7', color: '#d97706', fontWeight: 500, whiteSpace: 'nowrap' } }, isFa ? 'در انتظار تایید' : 'Pending Approval'),
@@ -1683,17 +1683,17 @@ export const ProjectStatusTab = ({ statusUpdates, users, onEdit, onDelete, isRea
                             const currentStageIdx = update.currentStageIndex ?? 0;
                             const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                             const effectiveApproverId = update.currentApproverId ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
-                            const approverUser = users?.find(u => Number(u.id) === Number(effectiveApproverId));
+                            const approverUser = users?.find(u => String(u.id) === String(effectiveApproverId));
                             const approverDisplay = approverUser ? (approverUser.name ? `${approverUser.name} (${approverUser.username})` : approverUser.username) : '-';
                             const canApproveThisItem = currentUserId && (
-                                Number(effectiveApproverId) === Number(currentUserId) || isPMOrAdmin
+                                String(effectiveApproverId) === String(currentUserId) || isPMOrAdmin
                             );
 
                             return React.createElement("tr", { key: update.id },
                                 React.createElement("td", null, language === 'fa' ? toPersianDigits(index + 1) : index + 1),
                                 React.createElement("td", null, formatDate(update.date, language)),
                                 React.createElement("td", null, update.description),
-                                React.createElement("td", null, users?.find(u => Number(u.id) === Number(update.submittedBy))?.username || '-'),
+                                React.createElement("td", null, users?.find(u => String(u.id) === String(update.submittedBy))?.username || '-'),
                                 React.createElement("td", null, approverDisplay),
                                 !hideApprovalStatus && React.createElement("td", { style: { textAlign: 'center' } },
                                     isPending && React.createElement("span", { className: "badge badge-yellow", style: { display: 'inline-block', fontSize: '0.75rem', padding: '4px 10px', borderRadius: '9999px', backgroundColor: '#fef3c7', color: '#d97706', fontWeight: 500, whiteSpace: 'nowrap' } }, language === 'fa' ? 'در انتظار تایید' : 'Pending Approval'),
@@ -1802,17 +1802,17 @@ export const ProjectDelayReasonsTab = ({ delayReasons, users, onEdit, onDelete, 
                             const currentStageIdx = reason.currentStageIndex ?? 0;
                             const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                             const effectiveApproverId = reason.currentApproverId ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
-                            const approverUser = users?.find(u => Number(u.id) === Number(effectiveApproverId));
+                            const approverUser = users?.find(u => String(u.id) === String(effectiveApproverId));
                             const approverDisplay = approverUser ? (approverUser.name ? `${approverUser.name} (${approverUser.username})` : approverUser.username) : '-';
                             const canApproveThisItem = currentUserId && (
-                                Number(effectiveApproverId) === Number(currentUserId) || isPMOrAdmin
+                                String(effectiveApproverId) === String(currentUserId) || isPMOrAdmin
                             );
 
                             return React.createElement("tr", { key: reason.id },
                                 React.createElement("td", null, language === 'fa' ? toPersianDigits(index + 1) : index + 1),
                                 React.createElement("td", null, formatDate(reason.date, language)),
                                 React.createElement("td", null, reason.description),
-                                React.createElement("td", null, users?.find(u => Number(u.id) === Number(reason.submittedBy))?.username || '-'),
+                                React.createElement("td", null, users?.find(u => String(u.id) === String(reason.submittedBy))?.username || '-'),
                                 React.createElement("td", null, approverDisplay),
                                 !hideApprovalStatus && React.createElement("td", { style: { textAlign: 'center' } },
                                     isPending && React.createElement("span", { className: "badge badge-yellow", style: { display: 'inline-block', fontSize: '0.75rem', padding: '4px 10px', borderRadius: '9999px', backgroundColor: '#fef3c7', color: '#d97706', fontWeight: 500, whiteSpace: 'nowrap' } }, language === 'fa' ? 'در انتظار تایید' : 'Pending Approval'),
@@ -1964,10 +1964,10 @@ export const ProjectDocumentsTab = ({ documents, users, onEdit, onDelete, isRead
                             const currentStageIdx = doc.currentStageIndex ?? 0;
                             const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                             const effectiveApproverId = doc.currentApproverId ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
-                            const approverUser = users?.find(u => Number(u.id) === Number(effectiveApproverId));
+                            const approverUser = users?.find(u => String(u.id) === String(effectiveApproverId));
                             const approverDisplay = approverUser ? (approverUser.name ? `${approverUser.name} (${approverUser.username})` : approverUser.username) : '-';
                             const canApproveThisItem = currentUserId && (
-                                Number(effectiveApproverId) === Number(currentUserId) || isPMOrAdmin
+                                String(effectiveApproverId) === String(currentUserId) || isPMOrAdmin
                             );
 
                             return React.createElement("tr", { key: doc.id },
@@ -2007,7 +2007,7 @@ export const ProjectDocumentsTab = ({ documents, users, onEdit, onDelete, isRead
                                 ),
                                 React.createElement("td", null, t(docTypeTranslations[doc.type])),
                                 React.createElement("td", null, formatDate(doc.date || getISODateString(), language)),
-                                React.createElement("td", null, users?.find(u => Number(u.id) === Number(doc.submittedBy))?.username || '-'),
+                                React.createElement("td", null, users?.find(u => String(u.id) === String(doc.submittedBy))?.username || '-'),
                                 React.createElement("td", null, approverDisplay),
                                 !hideApprovalStatus && React.createElement("td", { style: { textAlign: 'center' } },
                                     isPending && React.createElement("span", { className: "badge badge-yellow", style: { display: 'inline-block', fontSize: '0.75rem', padding: '4px 10px', borderRadius: '9999px', backgroundColor: '#fef3c7', color: '#d97706', fontWeight: 500, whiteSpace: 'nowrap' } }, isFa ? 'در انتظار تایید' : 'Pending Approval'),
@@ -2252,7 +2252,7 @@ export const ProjectScheduleTab = ({ project, users, calendars, onUpdateSchedule
     }, [processedSchedule]);
     
     const isAdmin = currentUser?.role === 'Admin';
-    const isPM = !!(currentUser && (Number(project.projectManagerId) === Number(currentUser.id) || Number(project.ownerId || 1) === Number(currentUser.id)));
+    const isPM = !!(currentUser && (String(project.projectManagerId) === String(currentUser.id) || String(project.ownerId || 1) === String(currentUser.id)));
     const isScheduleWorkflowActive = project.tabWorkflows?.schedule !== false;
 
     // Admin can edit actualProgress if workflow active or inactive. PM can edit ONLY if workflow is inactive. Team members cannot edit.
@@ -2320,7 +2320,7 @@ export const ProjectScheduleTab = ({ project, users, calendars, onUpdateSchedule
                         : (language === 'fa' ? toPersianDigits(Math.round(task.weight || 0)) : Math.round(task.weight || 0))
                 ),
                 React.createElement("td", null,
-                    task.id !== 'project-root' && !task.isParent && !isReadOnly ? React.createElement("select", { value: task.assignedToId || '', onChange: (e: ChangeEvent<HTMLSelectElement>) => handleUpdate(task.id, 'assignedToId', parseInt(e.target.value) || null), disabled: isReadOnly },
+                    task.id !== 'project-root' && !task.isParent && !isReadOnly ? React.createElement("select", { value: task.assignedToId || '', onChange: (e: ChangeEvent<HTMLSelectElement>) => handleUpdate(task.id, 'assignedToId', e.target.value || null), disabled: isReadOnly },
                         React.createElement("option", { value: "" }, "-"),
                         teamMembers.map(m => React.createElement("option", { key: m.id, value: m.id }, m.username))
                     ) : (teamMembers.find(m => m.id === task.assignedToId)?.username || '-')
@@ -2330,7 +2330,7 @@ export const ProjectScheduleTab = ({ project, users, calendars, onUpdateSchedule
                     const stages = dynamicWorkflowSettings?.activity_progress || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.activity_progress;
                     const stage = stages[0];
                     const effectiveApproverId = task.approver1Id ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
-                    const approverUser = users?.find(u => Number(u.id) === Number(effectiveApproverId));
+                    const approverUser = users?.find(u => String(u.id) === String(effectiveApproverId));
                     return approverUser ? (approverUser.name ? `${approverUser.name} (${approverUser.username})` : approverUser.username) : '-';
                 })()),
                 React.createElement("td", null,
@@ -2543,7 +2543,7 @@ export const ProjectKanbanTab = ({ project, users, onUpdateTasks, progressUpdate
     users: User[], 
     onUpdateTasks: (tasks: KanbanTask[]) => void,
     progressUpdates: ProgressUpdate[],
-    onAddKanbanStatusUpdate?: (projectId: number, taskId: number, newStatus: KanbanStatus, comment: string) => void,
+    onAddKanbanStatusUpdate?: (projectId: string, taskId: number, newStatus: KanbanStatus, comment: string) => void,
     isReadOnly?: boolean,
     dynamicWorkflowSettings?: DynamicWorkflowSettings
 }): ReactElement => {
@@ -2552,7 +2552,7 @@ export const ProjectKanbanTab = ({ project, users, onUpdateTasks, progressUpdate
     const [aiModalOpen, setAiModalOpen] = useState(false);
     const [agileChartModalOpen, setAgileChartModalOpen] = useState(false);
     const [editingTask, setEditingTask] = useState<Partial<KanbanTask> | null>(null);
-    const [historyModalInfo, setHistoryModalInfo] = useState<{ taskId: number; projectId: number } | null>(null);
+    const [historyModalInfo, setHistoryModalInfo] = useState<{ taskId: number; projectId: string } | null>(null);
 
 
     const teamMembers = useMemo(() => {
@@ -2708,7 +2708,7 @@ export const ProjectKanbanTab = ({ project, users, onUpdateTasks, progressUpdate
                                                 const stages = dynamicWorkflowSettings?.activity_progress || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.activity_progress;
                                                 const stage = stages[0];
                                                 const effectiveApproverId = task.approver1Id ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
-                                                const approverUser = users.find(u => Number(u.id) === Number(effectiveApproverId));
+                                                const approverUser = users.find(u => String(u.id) === String(effectiveApproverId));
                                                 return approverUser?.username || 'N/A';
                                             })())
                                         )
@@ -2840,7 +2840,7 @@ const _DeprecatedProjectSettingsTab = ({
     const [expandedTabId, setExpandedTabId] = useState<string | null>(null);
 
     const projectOwnerId = project.ownerId || 1;
-    const isOwner = !!(currentUser && (Number(projectOwnerId) === Number(currentUser.id) || currentUser.role === 'Admin'));
+    const isOwner = !!(currentUser && (String(projectOwnerId) === String(currentUser.id) || currentUser.role === 'Admin'));
 
     useEffect(() => {
         setLocalWeightingType(project.weightingType || 'manual');
@@ -2904,8 +2904,8 @@ const _DeprecatedProjectSettingsTab = ({
         setSnapshotName('');
     };
 
-    const pmUser = users.find(u => Number(u.id) === Number(project.projectManagerId));
-    const ownerUser = users.find(u => Number(u.id) === Number(project.ownerId));
+    const pmUser = users.find(u => String(u.id) === String(project.projectManagerId));
+    const ownerUser = users.find(u => String(u.id) === String(project.ownerId));
 
     return React.createElement("div", { className: "project-settings-tab" },
         React.createElement("div", { className: "form-section" },

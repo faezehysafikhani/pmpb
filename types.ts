@@ -4,7 +4,7 @@ export interface Delegation {
   id: number;
   type: 'waterfall' | 'agile' | 'action';
   itemId: string | number; // activityId, taskId, or actionId
-  projectId?: number;
+  projectId?: string;
   delegatorId: string;
   delegateeId: string;
   delegationDate: string; // ISO Date String
@@ -360,7 +360,7 @@ export interface ProjectDelayReason {
 }
 
 export interface Project {
-  id: number;
+  id: string;
   type: ProjectType;
   approvalStatus: ProjectApprovalStatus;
   approvalComment?: string;
@@ -447,7 +447,7 @@ export interface ActionItem {
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   owningUnit: string;
-  projectId?: number;
+  projectId?: string;
   sourceType?: 'manual' | 'risk' | 'stakeholder';
   sourceRiskId?: number;
   sourceStakeholderId?: number;
@@ -485,7 +485,7 @@ export type ProgressUpdateStatus = 'Pending Approval' | 'Approved' | 'Rejected';
 
 export interface ProgressUpdate {
     id: number;
-    projectId?: number;
+    projectId?: string;
     activityId?: string;
     taskId?: number;
     actionId?: number;
@@ -627,13 +627,13 @@ export interface EnrichedTask extends ProjectActivity {
     parentActivityName: string;
     approverName: string;
     submissionStatus: ProgressUpdateStatus | 'Unsubmitted';
-    projectId: number;
+    projectId: string;
     reviewComment?: string;
 }
 
 export interface EnrichedKanbanTask extends KanbanTask {
     projectName: string;
-    projectId: number;
+    projectId: string;
     approverName: string;
     submissionStatus: ProgressUpdateStatus | 'Unsubmitted';
     reviewComment?: string;
@@ -654,7 +654,7 @@ export interface Strategy {
 export type AlignmentLevel = 'None' | 'Low' | 'Medium' | 'High';
 
 export interface ProjectStrategyAlignment {
-  projectId: number;
+  projectId: string;
   strategyId: string; // Leaf strategy ID
   level: AlignmentLevel;
 }

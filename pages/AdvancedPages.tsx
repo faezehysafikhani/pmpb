@@ -1065,7 +1065,7 @@ export const AlignmentMatrixPage = ({ projects, strategies, alignments, onSaveAl
         return rows.filter(row => row.length > 0);
     }, [strategyTree, maxDepth, getLeafCount]);
     
-    const calculateAlignmentPercentage = useCallback((projectId: number): number => {
+    const calculateAlignmentPercentage = useCallback((projectId: string): number => {
         const levelWeights: Record<AlignmentLevel, number> = { None: 0, Low: 1, Medium: 2, High: 3 };
         let totalScore = 0;
         let maxScore = 0;
@@ -1104,7 +1104,7 @@ export const AlignmentMatrixPage = ({ projects, strategies, alignments, onSaveAl
         'None': 'none', 'Low': 'low', 'Medium': 'medium', 'High': 'high'
     };
 
-    const handleAlignmentChange = (projectId: number, strategyId: string, level: AlignmentLevel) => {
+    const handleAlignmentChange = (projectId: string, strategyId: string, level: AlignmentLevel) => {
         setLocalAlignments(prev => {
             const otherAlignments = prev.filter(a => !(a.projectId === projectId && a.strategyId === strategyId));
             if (level !== 'None') {

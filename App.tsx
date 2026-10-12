@@ -1,9 +1,12 @@
 
 
 import React, { useState, useContext, useEffect, useMemo } from 'react';
-import { initialProjects, initialStrategies, initialAlignments, initialKnowledgeDocuments, initialActions, initialDelegations } from './data';
+import { initialStrategies, initialAlignments, initialKnowledgeDocuments, initialActions, initialDelegations } from './data';
 import { AuthProvider, useAuth } from './directory/AuthContext';
 import { DirectoryProvider, useDirectory } from './directory/DirectoryContext';
+import { ProjectsProvider, useProjects } from './directory/ProjectsContext';
+import { projectErrorText } from './services/backend/errors';
+import type { ProjectOutcome } from './directory/ProjectsContext';
 import { toUiUser } from './services/backend/mappers';
 
 import { 
@@ -22,7 +25,7 @@ import {
     resolveWorkflowApproverId,
     getEffectiveProjectWorkflowStages
 } from './types';
-import { pickCalendar, getISODateString, getISODateTimeString, calculateScheduleTreeAndProgress, isProjectVisibleToUser, isActionVisibleToUser, toPersianDigits, generateRecurringOccurrences } from './utils';
+import { pickCalendar, getISODateString, getISODateTimeString, calculateScheduleTreeAndProgress, isActionVisibleToUser, toPersianDigits, generateRecurringOccurrences } from './utils';
 import { LocalizationProvider, LocalizationContext, ThemeProvider } from './context';
 import { LoginPage, MainMenu, SettingsPage } from './pages/CorePages';
 import { UserManagementPage, TaskCenterPage, ApprovalCenterPage } from './pages/UserAndTaskPages';
@@ -53,32 +56,12 @@ const AppContent = () => {
     const owningUnits = directory.unitPaths;
     const unitNodes = directory.unitNodes;
 
-    const [projects, setProjects] = useState<Project[]>(() => {
-        const defaultWorkflows = { charter: true, schedule: true, team: true, risks: true, status: true, delays: true, docs: true, actions: true };
-        try {
-            const saved = localStorage.getItem('pms_projects');
-            if (saved) {
-                const parsed: Project[] = JSON.parse(saved);
-                const existingIds = new Set(parsed.map(p => p.id));
-                const missingInitial = initialProjects.filter(p => !existingIds.has(p.id));
-                const merged = [...parsed, ...missingInitial].map(p => ({
-                    ...p,
-                    tabWorkflows: { ...defaultWorkflows, ...(p.tabWorkflows || {}) }
-                }));
-                if (missingInitial.length > 0) {
-                    localStorage.setItem('pms_projects', JSON.stringify(merged));
-                }
-                return merged;
-            }
-            localStorage.setItem('pms_projects', JSON.stringify(initialProjects));
-            return initialProjects;
-        } catch (e) {
-            console.error("Failed to parse projects from localStorage", e);
-            localStorage.removeItem('pms_projects');
-            return initialProjects;
-        }
-    });
-    
+    // Projects belong to the backend too (charter, people, unit, calendar, dates, status, team, approval state).
+    // The parts of a project that are not connected yet (risks, schedule, documents ...) ride along inside it via setProjects.
+    const projectsState = useProjects();
+    const projects = projectsState.projects;
+    const setProjects = projectsState.setProjects;
+
     const [actions, setActions] = useState<ActionItem[]>(() => {
         try {
             const saved = localStorage.getItem('pms_actions');
@@ -237,7 +220,6 @@ const AppContent = () => {
     const [approvalCommentModalState, setApprovalCommentModalState] = useState<{ type: 'project' | 'progress', id: number, status: 'Approved' | 'Rejected', initialComment?: string } | null>(null);
 
     // --- DATA PERSISTENCE ---
-    useEffect(() => { localStorage.setItem('pms_projects', JSON.stringify(projects)); }, [projects]);
     useEffect(() => { localStorage.setItem('pms_actions', JSON.stringify(actions)); }, [actions]);
     useEffect(() => { localStorage.setItem('pms_strategies', JSON.stringify(strategies)); }, [strategies]);
     useEffect(() => { localStorage.setItem('pms_alignments', JSON.stringify(alignments)); }, [alignments]);
@@ -306,7 +288,7 @@ const AppContent = () => {
     
         const projectApprovals = projects.filter(p => 
             p.approvalStatus === 'Pending Approval' && 
-            (p.approver1Id ? Number(p.approver1Id) === Number(currentUser.id) : currentUser.role === 'Admin')
+            (p.approver1Id ? String(p.approver1Id) === String(currentUser.id) : currentUser.role === 'Admin')
         ).length;
 
         let pendingTabItemsCount = 0;
@@ -317,7 +299,7 @@ const AppContent = () => {
                     const currentStageIdx = r.currentStageIndex ?? 0;
                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                     const targetApproverId = r.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-                    if (Number(targetApproverId) === Number(currentUser.id) || currentUser.role === 'Admin') {
+                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
                         pendingTabItemsCount++;
                     }
                 }
@@ -326,7 +308,7 @@ const AppContent = () => {
                     const currentStageIdx = r.verificationStageIndex ?? 0;
                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                     const targetApproverId = r.verificationApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-                    if (Number(targetApproverId) === Number(currentUser.id) || currentUser.role === 'Admin') {
+                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
                         pendingTabItemsCount++;
                     }
                 }
@@ -338,7 +320,7 @@ const AppContent = () => {
                     const currentStageIdx = sh.currentStageIndex ?? 0;
                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                     const targetApproverId = sh.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-                    if (Number(targetApproverId) === Number(currentUser.id) || currentUser.role === 'Admin') {
+                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
                         pendingTabItemsCount++;
                     }
                 }
@@ -350,7 +332,7 @@ const AppContent = () => {
                     const currentStageIdx = s.currentStageIndex ?? 0;
                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                     const targetApproverId = s.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-                    if (Number(targetApproverId) === Number(currentUser.id) || currentUser.role === 'Admin') {
+                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
                         pendingTabItemsCount++;
                     }
                 }
@@ -362,7 +344,7 @@ const AppContent = () => {
                     const currentStageIdx = d.currentStageIndex ?? 0;
                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                     const targetApproverId = d.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-                    if (Number(targetApproverId) === Number(currentUser.id) || currentUser.role === 'Admin') {
+                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
                         pendingTabItemsCount++;
                     }
                 }
@@ -374,7 +356,7 @@ const AppContent = () => {
                     const currentStageIdx = doc.currentStageIndex ?? 0;
                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                     const targetApproverId = doc.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-                    if (Number(targetApproverId) === Number(currentUser.id) || currentUser.role === 'Admin') {
+                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
                         pendingTabItemsCount++;
                     }
                 }
@@ -462,10 +444,8 @@ const AppContent = () => {
         return notifiedTaskIds.size;
     }, [projects, actions, currentUser, progressUpdates, allProcessedActivities]);
 
-    const visibleProjectsForCurrentUser = useMemo(() => {
-        if (!currentUser) return [];
-        return projects.filter(p => isProjectVisibleToUser(p, currentUser, visibilitySettings, users, unitNodes));
-    }, [projects, currentUser, visibilitySettings, users, unitNodes]);
+    // The backend only sends the projects this user may see, so there is nothing to filter here.
+    const visibleProjectsForCurrentUser = projects;
 
     const visibleActionsForCurrentUser = useMemo(() => {
         if (!currentUser) return [];
@@ -496,66 +476,48 @@ const AppContent = () => {
     };
 
     // --- PROJECT & TASK HANDLERS ---
-    const handleSaveProject = (project: Project, mode: 'draft' | 'sent') => {
-        if (projects.some(p => p.name.toLowerCase() === project.name.toLowerCase())) {
-            setInfoModal({ title: t('error'), message: t('projectNameExists')});
+    /** The backend's error code wins over its (English) text where the screens have their own wording. */
+    const projectFailureMessage = (outcome: ProjectOutcome): string =>
+        projectErrorText({ code: outcome.code ?? '', message: outcome.message || t('error') }, language, t('projectNameExists'));
+
+    const handleSaveProject = async (project: Project, mode: 'draft' | 'sent') => {
+        const outcome = await projectsState.saveProject(project, mode === 'sent');
+        if (!outcome.ok) {
+            setInfoModal({ title: t('error'), message: projectFailureMessage(outcome) });
+            if (outcome.project) handleNavigate('portfolio');
             return;
         }
-        
-        const newProject: Project = { ...project, id: Date.now() };
 
-        if (mode === 'sent') {
-            const newHistory: ProjectApprovalRecord = { action: 'Submitted', date: getISODateString(), actor: currentUser!.username };
-            if (newProject.approvalStatus === 'Approved') {
-                const autoApproval: ProjectApprovalRecord = { action: 'Approved', date: getISODateString(), actor: 'System (Workflow Disabled)' };
-                newProject.approvalHistory = [newHistory, autoApproval];
-            } else {
-                newProject.approvalHistory = [newHistory];
-            }
-        }
-        
-        setProjects(prev => [...prev, newProject]);
-        
         if (mode === 'draft') {
             setInfoModal({ title: t('saveProject'), message: t('projectSavedAsDraft') });
+        } else if (outcome.project?.approvalStatus === 'Approved') {
+            setInfoModal({
+                title: t('saveProject'),
+                message: language === 'fa'
+                    ? 'پروژه با موفقیت ایجاد و فعال گردید.'
+                    : 'Project has been successfully created and activated.'
+            });
         } else {
-            if (newProject.approvalStatus === 'Approved') {
-                setInfoModal({ 
-                    title: t('saveProject'), 
-                    message: language === 'fa' 
-                        ? 'پروژه با موفقیت ایجاد و فعال گردید.' 
-                        : 'Project has been successfully created and activated.' 
-                });
-            } else {
-                setInfoModal({ title: t('sendForApproval'), message: t('projectSubmittedForApproval') });
-            }
+            setInfoModal({ title: t('sendForApproval'), message: t('projectSubmittedForApproval') });
         }
         handleNavigate('portfolio');
     };
 
-    const handleUpdateProject = (project: Project, mode: 'draft' | 'sent', stayOnPage?: boolean) => {
-        const updatedProject = { ...project };
-        
+    const handleUpdateProject = async (project: Project, mode: 'draft' | 'sent', stayOnPage?: boolean) => {
+        const outcome = await projectsState.updateProject(project, mode === 'sent');
+        if (!outcome.ok) {
+            setInfoModal({ title: t('error'), message: projectFailureMessage(outcome) });
+            return;
+        }
+
         if (mode === 'sent') {
-            const newHistory: ProjectApprovalRecord = { action: 'Submitted', date: getISODateString(), actor: currentUser!.username };
-            if (updatedProject.approvalStatus === 'Approved') {
-                const autoApproval: ProjectApprovalRecord = { action: 'Approved', date: getISODateString(), actor: 'System (Workflow Disabled)' };
-                updatedProject.approvalHistory = [...(updatedProject.approvalHistory || []), newHistory, autoApproval];
-                setInfoModal({ 
-                    title: t('updateProject'), 
-                    message: language === 'fa' 
-                        ? 'پروژه با موفقیت فعال گردید.' 
-                        : 'Project has been successfully activated.' 
-                });
-            } else {
-                updatedProject.approvalHistory = [...(updatedProject.approvalHistory || []), newHistory];
-                setInfoModal({ title: t('sendForApproval'), message: t('projectSubmittedForApproval') });
-            }
+            setInfoModal(outcome.project?.approvalStatus === 'Approved'
+                ? { title: t('updateProject'), message: language === 'fa' ? 'پروژه با موفقیت فعال گردید.' : 'Project has been successfully activated.' }
+                : { title: t('sendForApproval'), message: t('projectSubmittedForApproval') });
         } else {
             setInfoModal({ title: t('updateProject'), message: t('projectUpdatedSuccess') });
         }
 
-        setProjects(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
         if (!stayOnPage) {
             handleNavigate('portfolio');
         }
@@ -565,8 +527,11 @@ const AppContent = () => {
         setProjects(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
     };
 
-    const handleDeleteProject = (projectId: number) => {
-        setProjects(prev => prev.filter(p => p.id !== projectId));
+    const handleDeleteProject = async (projectId: string) => {
+        const outcome = await projectsState.deleteProject(projectId);
+        if (!outcome.ok) {
+            setInfoModal({ title: t('error'), message: outcome.message || t('error') });
+        }
     };
 
     const handleDeleteAction = (actionId: number) => {
@@ -622,7 +587,7 @@ const AppContent = () => {
         handleNavigate('main');
     };
 
-    const handleAddProgressUpdate = (projectId: number, activityId: string, progress: number, submissionComment: string, documentName?: string) => {
+    const handleAddProgressUpdate = (projectId: string, activityId: string, progress: number, submissionComment: string, documentName?: string) => {
         const project = projects.find(p => p.id === projectId);
         const activity = project?.schedule?.find(a => a.id === activityId);
         if (!activity) return;
@@ -660,7 +625,7 @@ const AppContent = () => {
         setInfoModal({ title: t('submitForApproval'), message: t('progressUpdated') });
     };
     
-    const handleAddKanbanStatusUpdate = (projectId: number, taskId: number, newStatus: KanbanStatus, comment: string) => {
+    const handleAddKanbanStatusUpdate = (projectId: string, taskId: number, newStatus: KanbanStatus, comment: string) => {
         const project = projects.find(p => p.id === projectId);
         const task = project?.kanbanTasks?.find(t => t.id === taskId);
         if (!task) return;
@@ -730,7 +695,7 @@ const AppContent = () => {
         setInfoModal({ title: t('submitForApproval'), message: t('progressUpdated') });
     };
 
-    const handleUpdateRiskResponseStatus = (projectId: number, riskId: number, status: string, comment?: string) => {
+    const handleUpdateRiskResponseStatus = (projectId: string, riskId: number, status: string, comment?: string) => {
         setProjects(prev => prev.map(p => {
             if (p.id !== projectId) return p;
             const stages = getEffectiveProjectWorkflowStages('risks', p, dynamicWorkflowSettings);
@@ -848,7 +813,7 @@ const AppContent = () => {
             const currentStage = stages ? stages[currentStageIdx] : undefined;
             const stageTitle = currentStage ? currentStage.stageTitle : (language === 'fa' ? `مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Stage ${currentStageIdx + 1}`);
 
-            const initialSubmitter = users.find(u => Number(u.id) === Number(update.submittedBy));
+            const initialSubmitter = users.find(u => String(u.id) === String(update.submittedBy));
             const initialSubmitterName = initialSubmitter ? (initialSubmitter.name ? `${initialSubmitter.name} (${initialSubmitter.username})` : initialSubmitter.username) : 'کاربر';
 
             const baseHistory = update.approvalHistory && update.approvalHistory.length > 0
@@ -1039,7 +1004,7 @@ const AppContent = () => {
         setKnowledgeDocuments(prev => prev.filter(d => d.id !== id));
     };
     
-    const handleDelegateTask = (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: number | undefined, delegateeId: string) => {
+    const handleDelegateTask = (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: string | undefined, delegateeId: string) => {
         // 1. Reassign the task
         if (type === 'action') {
             setActions(prevActions => prevActions.map(action =>
@@ -1179,6 +1144,7 @@ const AppContent = () => {
                             onNavigate={handleNavigate}
                             onSaveProject={handleSaveProject}
                             onUpdateProject={handleUpdateProject}
+                            onCheckProject={projectsState.checkProject}
                             onPartialUpdate={handlePartialUpdateProject}
                             existingProject={pageContext.project}
                             fromPage={pageContext.from}
@@ -1343,7 +1309,9 @@ export const App = () => {
             <ThemeProvider>
                 <AuthProvider>
                     <DirectoryProvider>
+                        <ProjectsProvider>
                         <AppContent />
+                        </ProjectsProvider>
                     </DirectoryProvider>
                 </AuthProvider>
             </ThemeProvider>

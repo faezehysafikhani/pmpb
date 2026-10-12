@@ -265,14 +265,14 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
     currentUser: User, 
     progressUpdates: ProgressUpdate[], 
     calendars: any[],
-    onAddProgressUpdate: (projectId: number, activityId: string, progress: number, submissionComment: string, documentName?: string) => void,
-    onAddKanbanStatusUpdate: (projectId: number, taskId: number, newStatus: KanbanStatus, comment: string) => void,
+    onAddProgressUpdate: (projectId: string, activityId: string, progress: number, submissionComment: string, documentName?: string) => void,
+    onAddKanbanStatusUpdate: (projectId: string, taskId: number, newStatus: KanbanStatus, comment: string) => void,
     onAddActionStatusUpdate: (actionId: number, newStatus: WorkStatus, currentStatus: WorkStatus, comment: string) => void,
-    onUpdateRiskResponseStatus?: (projectId: number, riskId: number, newStatus: WorkStatus, comment: string) => void,
+    onUpdateRiskResponseStatus?: (projectId: string, riskId: number, newStatus: WorkStatus, comment: string) => void,
     onNavigate: (page: string) => void,
     allProcessedActivities: Map<string, ProjectActivity>,
     delegations: Delegation[],
-    onDelegateTask: (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: number | undefined, delegateeId: string) => void,
+    onDelegateTask: (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: string | undefined, delegateeId: string) => void,
     onDeactivateDelegation: (delegationId: number) => void,
     dynamicWorkflowSettings?: DynamicWorkflowSettings
 }): ReactElement => {
@@ -292,11 +292,11 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
     // Waterfall state
     const [progressValues, setProgressValues] = useState<Record<string, number>>({});
     const [submissionModalTask, setSubmissionModalTask] = useState<EnrichedTask | null>(null);
-    const [historyModalInfo, setHistoryModalInfo] = useState<{type: 'activity', id: string, projectId: number} | null>(null);
+    const [historyModalInfo, setHistoryModalInfo] = useState<{type: 'activity', id: string, projectId: string} | null>(null);
 
     // Agile state
     const [statusUpdateModalTask, setStatusUpdateModalTask] = useState<EnrichedKanbanTask | null>(null);
-    const [kanbanHistoryModalInfo, setKanbanHistoryModalInfo] = useState<{ taskId: number, projectId: number } | null>(null);
+    const [kanbanHistoryModalInfo, setKanbanHistoryModalInfo] = useState<{ taskId: number, projectId: string } | null>(null);
     
     // Action state
     const [actionStatusUpdateModal, setActionStatusUpdateModal] = useState<ActionItem | null>(null);
@@ -320,7 +320,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
                     const processedActivity = allProcessedActivities.get(a.id);
                     if (a.assignedToId === currentUser.id && !processedActivity?.isParent) {
                         const effectiveApproverId = a.approver1Id ?? p.projectManagerId ?? users.find(u => u.role === 'Admin')?.id ?? 1;
-                        const approver = users.find(u => Number(u.id) === Number(effectiveApproverId));
+                        const approver = users.find(u => String(u.id) === String(effectiveApproverId));
                         const parent = a.parentId ? activityMap.get(a.parentId) : null;
                         const existingUpdate = progressUpdates.find(up => up.projectId === p.id && up.activityId === a.id && up.status === 'Pending Approval');
                         
@@ -355,7 +355,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
                         if (task.assignedToId === currentUser.id) {
                             const existingUpdate = progressUpdates.find(up => up.projectId === p.id && up.taskId === task.id && up.status === 'Pending Approval');
                             const effectiveApproverId = task.approver1Id ?? p.projectManagerId ?? users.find(u => u.role === 'Admin')?.id ?? 1;
-                            const approver = users.find(u => Number(u.id) === Number(effectiveApproverId));
+                            const approver = users.find(u => String(u.id) === String(effectiveApproverId));
                             tasks.push({
                                 ...task,
                                 projectName: p.name,
@@ -400,7 +400,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
                     const isAssigned = r.assignedTo && (
                         r.assignedTo.trim().toLowerCase() === (currentUser.username || '').trim().toLowerCase() ||
                         r.assignedTo.trim().toLowerCase() === (currentUser.name || '').trim().toLowerCase() ||
-                        Number(r.assignedTo) === Number(currentUser.id)
+                        String(r.assignedTo) === String(currentUser.id)
                     );
                     if (isAssigned) {
                         const isPending = r.verificationStatus === 'Pending Approval';
@@ -423,7 +423,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
         originalType: 'waterfall' | 'agile' | 'action' | 'risk_response';
         title: string;
         projectName: string;
-        projectId?: number;
+        projectId?: string;
         startDate?: string;
         endDate?: string;
         approverName: string;
@@ -475,7 +475,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
         // Actions
         myActions.forEach(a => {
             const effectiveApproverId = a.approver1Id ?? a.responsibleUserId ?? (a.projectId ? projects.find(p => p.id === a.projectId)?.projectManagerId : null) ?? users.find(u => u.role === 'Admin')?.id ?? 1;
-            const approver = users.find(u => Number(u.id) === Number(effectiveApproverId));
+            const approver = users.find(u => String(u.id) === String(effectiveApproverId));
             const projName = a.projectId ? (projects.find(p => p.id === a.projectId)?.name || (language === 'fa' ? 'سایر' : 'Other')) : (language === 'fa' ? 'عمومی / اقدامات' : 'General / Actions');
             
             list.push({
@@ -499,7 +499,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
             const currentStageIdx = r.verificationStageIndex ?? 0;
             const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
             const effectiveApproverId = r.verificationApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-            const approver = users.find(u => Number(u.id) === Number(effectiveApproverId));
+            const approver = users.find(u => String(u.id) === String(effectiveApproverId));
 
             list.push({
                 id: `risk-resp-${p.id}-${r.id}`,
@@ -1191,12 +1191,12 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const backIcon = language === 'fa' ? 'arrow_forward' : 'arrow_back';
-    const [historyModalInfo, setHistoryModalInfo] = useState<{ type: 'activity' | 'project' | 'kanban' | 'action', id: number | string, projectId?: number, project?: Project, taskId?: number, actionId?: number } | null>(null);
+    const [historyModalInfo, setHistoryModalInfo] = useState<{ type: 'activity' | 'project' | 'kanban' | 'action', id: number | string, projectId?: string, project?: Project, taskId?: number, actionId?: number } | null>(null);
     const [isApprovalHistoryModalOpen, setIsApprovalHistoryModalOpen] = useState(false);
     const [feasibilityProject, setFeasibilityProject] = useState<Project | null>(null);
 
     const [pendingTabItemReview, setPendingTabItemReview] = useState<{
-        projectId: number;
+        projectId: string;
         tabId: string;
         itemId: number;
         status: 'Approved' | 'Rejected';
@@ -1232,7 +1232,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
     
     const pendingTabItems = useMemo(() => {
         const list: {
-            projectId: number;
+            projectId: string;
             projectName: string;
             tabId: 'risks' | 'status' | 'delays' | 'docs' | 'stakeholders';
             tabLabel: string;
@@ -1250,7 +1250,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                     const targetApproverId = r.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
 
-                    if (Number(targetApproverId) === Number(currentUser.id) || currentUser.role === 'Admin') {
+                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
                         const submitter = users.find(u => u.id === r.submittedBy);
                         list.push({
                             projectId: p.id,
@@ -1271,8 +1271,8 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                     const targetApproverId = r.verificationApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
 
-                    if (Number(targetApproverId) === Number(currentUser.id) || currentUser.role === 'Admin') {
-                        const submitter = users.find(u => u.username === r.assignedTo || u.name === r.assignedTo || Number(u.id) === Number(r.assignedTo));
+                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
+                        const submitter = users.find(u => u.username === r.assignedTo || u.name === r.assignedTo || String(u.id) === String(r.assignedTo));
                         list.push({
                             projectId: p.id,
                             projectName: p.name,
@@ -1294,7 +1294,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                     const targetApproverId = sh.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
 
-                    if (Number(targetApproverId) === Number(currentUser.id) || currentUser.role === 'Admin') {
+                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
                         const submitter = users.find(u => u.id === sh.submittedBy);
                         list.push({
                             projectId: p.id,
@@ -1317,7 +1317,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                     const targetApproverId = s.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
 
-                    if (Number(targetApproverId) === Number(currentUser.id) || currentUser.role === 'Admin') {
+                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
                         const submitter = users.find(u => u.id === s.submittedBy);
                         list.push({
                             projectId: p.id,
@@ -1340,7 +1340,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                     const targetApproverId = d.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
 
-                    if (Number(targetApproverId) === Number(currentUser.id) || currentUser.role === 'Admin') {
+                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
                         const submitter = users.find(u => u.id === d.submittedBy);
                         list.push({
                             projectId: p.id,
@@ -1363,7 +1363,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
                     const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
                     const targetApproverId = doc.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
 
-                    if (Number(targetApproverId) === Number(currentUser.id) || currentUser.role === 'Admin') {
+                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
                         const submitter = users.find(u => u.id === doc.submittedBy);
                         list.push({
                             projectId: p.id,
@@ -1382,7 +1382,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
         return list;
     }, [projects, users, currentUser, language, dynamicWorkflowSettings]);
 
-    const handleApproveTabItem = (projectId: number, tabId: string, itemId: number, comment?: string) => {
+    const handleApproveTabItem = (projectId: string, tabId: string, itemId: number, comment?: string) => {
         setProjects(prev => prev.map(p => {
             if (p.id !== projectId) return p;
             
@@ -1402,7 +1402,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
                             action: 'Submitted' as const,
                             date: item.date || getISODateTimeString(),
                             actor: (() => {
-                                const u = users.find(usr => Number(usr.id) === Number(item.submittedBy));
+                                const u = users.find(usr => String(usr.id) === String(item.submittedBy));
                                 return u ? (u.name ? `${u.name} (${u.username})` : u.username) : 'کاربر';
                             })(),
                             stageTitle: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission',
@@ -1486,7 +1486,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
         }));
     };
 
-    const handleRejectTabItem = (projectId: number, tabId: string, itemId: number, comment?: string) => {
+    const handleRejectTabItem = (projectId: string, tabId: string, itemId: number, comment?: string) => {
         setProjects(prev => prev.map(p => {
             if (p.id !== projectId) return p;
             const actorName = currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username || 'User';
@@ -1505,7 +1505,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
                             action: 'Submitted' as const,
                             date: item.date || getISODateTimeString(),
                             actor: (() => {
-                                const u = users.find(usr => Number(usr.id) === Number(item.submittedBy));
+                                const u = users.find(usr => String(usr.id) === String(item.submittedBy));
                                 return u ? (u.name ? `${u.name} (${u.username})` : u.username) : 'کاربر';
                             })(),
                             stageTitle: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission',
@@ -1569,7 +1569,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
     
     const pendingActivityApprovals = useMemo(() => {
         return progressUpdates
-            .filter(up => up.status === 'Pending Approval' && up.activityId && Number(up.currentApproverId) === Number(currentUser.id))
+            .filter(up => up.status === 'Pending Approval' && up.activityId && String(up.currentApproverId) === String(currentUser.id))
             .map(up => {
                 const project = projects.find(p => p.id === up.projectId);
                 if (!project) {
@@ -1593,7 +1593,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
 
     const pendingKanbanApprovals = useMemo(() => {
         return progressUpdates
-            .filter(up => up.status === 'Pending Approval' && up.taskId && up.submittedStatus && Number(up.currentApproverId) === Number(currentUser.id))
+            .filter(up => up.status === 'Pending Approval' && up.taskId && up.submittedStatus && String(up.currentApproverId) === String(currentUser.id))
             .map(up => {
                 const project = projects.find(p => p.id === up.projectId);
                  if (!project) {
@@ -1618,7 +1618,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
             .filter(p => p.approvalStatus === 'Pending Approval')
             .filter(p => {
                 if (p.approver1Id) {
-                    return Number(p.approver1Id) === Number(currentUser.id);
+                    return String(p.approver1Id) === String(currentUser.id);
                 }
                 return currentUser.role === 'Admin';
             })
@@ -1633,7 +1633,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
 
     const pendingActionStatusApprovals = useMemo(() => {
         return progressUpdates
-            .filter(up => up.status === 'Pending Approval' && up.actionId && Number(up.currentApproverId) === Number(currentUser.id))
+            .filter(up => up.status === 'Pending Approval' && up.actionId && String(up.currentApproverId) === String(currentUser.id))
             .map(up => {
                 const action = actions.find(a => a.id === up.actionId);
                 if (!action) {
@@ -1647,7 +1647,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
 
     const pendingCharterApprovals = useMemo(() => {
         return progressUpdates
-            .filter(up => up.status === 'Pending Approval' && up.submittedCharter && Number(up.currentApproverId) === Number(currentUser.id))
+            .filter(up => up.status === 'Pending Approval' && up.submittedCharter && String(up.currentApproverId) === String(currentUser.id))
             .map(up => {
                 const project = projects.find(p => p.id === up.projectId);
                 const submitter = users.find(u => u.id === up.submittedBy);
@@ -1675,7 +1675,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
         approvalType: 'project' | 'charter' | 'waterfall' | 'agile' | 'action' | 'risks' | 'stakeholders' | 'status' | 'delays' | 'docs';
         typeLabel: string;
         projectName: string;
-        projectId?: number;
+        projectId?: string;
         description: string;
         submitterName: string;
         rawItem: any;
