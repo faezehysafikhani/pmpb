@@ -1,8 +1,10 @@
-import React, { useState, useMemo, useContext } from 'react';
+import React, { useState, useMemo, useContext, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LocalizationContext } from '../context';
 import { User, Project, EnrichedProject, Calendar, WorkStatus } from '../types';
-import { toPersianDigits, enrichProjectWithProgress, getUnitLevel2, getUnitLevel1And2, exportDashboardToLandscapePdf } from '../utils';
+import { toPersianDigits, enrichProjectWithProgress, getUnitLevel2, exportDashboardToLandscapePdf } from '../utils';
+import { reportsApi } from '../services/backend/reports';
+import type { BackendManagerEvaluation, BackendStatusMatrix, BackendUnitReport } from '../services/backend/reports';
 
 interface ReportsDashboardPageProps {
   projects: Project[];
@@ -47,12 +49,40 @@ export const ReportsDashboardPage = ({
   // Selected manager for detailed view
   const [selectedManagerId, setSelectedManagerId] = useState<number | null>(null);
 
-  // --- 1. ENRICH PROJECTS ---
+  // --- 1. THE BACKEND'S REPORTS ---
+  // Averages, delays, ratings and the unit / status counts are worked out by the backend; this page only lays them out.
+  // (The projects listed when a row or cell is opened are looked up by the ids the backend returns.)
+  const [reports, setReports] = useState<{ units: BackendUnitReport | null; managers: BackendManagerEvaluation[]; matrix: BackendStatusMatrix | null }>(
+    { units: null, managers: [], matrix: null });
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [reportsLoading, setReportsLoading] = useState(true);
+
+  const projectsKey = projects.map(p => `${p.id}:${p.status}:${p.approvalStatus}`).join(',');
+  useEffect(() => {
+    let cancelled = false;
+    setReportsLoading(true);
+    void Promise.all([reportsApi.units(), reportsApi.managers(), reportsApi.matrix()]).then(([units, managers, matrix]) => {
+      if (cancelled) return;
+      const failure = [units, managers, matrix].find(r => !r.ok);
+      setReportError(failure ? (failure.error?.status === 403
+        ? (language === 'fa' ? 'برای مشاهده این گزارش‌ها دسترسی «مشاهده همه گزارش‌ها» لازم است.' : 'Viewing these reports needs the "view all reports" permission.')
+        : failure.error?.message ?? 'The reports could not be loaded.') : null);
+      setReports({ units: units.value ?? null, managers: managers.value?.managers ?? [], matrix: matrix.value ?? null });
+      setReportsLoading(false);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectsKey]);
+
   const enrichedProjects = useMemo(() => {
     return projects
       .filter((p) => p.approvalStatus === 'Approved')
       .map((p) => enrichProjectWithProgress(p, calendars));
   }, [projects, calendars]);
+  const projectsByIds = (ids: string[] | null | undefined) => {
+    const wanted = new Set(ids ?? []);
+    return enrichedProjects.filter(p => wanted.has(p.id));
+  };
 
   // Helper to resolve manager name
   const getManagerName = (id: string | null) => {
@@ -76,267 +106,106 @@ export const ReportsDashboardPage = ({
     }
   };
 
-  // --- 2. DEPARTMENT PERFORMANCE EVALUATION CALCULATIONS ---
-  const unitPerformanceData = useMemo(() => {
-    const dataMap: Record<string, {
-      unit: string;
-      projectsCount: number;
-      completedCount: number;
-      inProgressCount: number;
-      delayedCount: number;
-      totalPlannedProgress: number;
-      totalActualProgress: number;
-      performanceScores: number[];
-      projects: EnrichedProject[];
-    }> = {};
+  type Rating = 'Excellent' | 'Good' | 'Needs Improvement';
+  const ratingOf = (backendRating: string | null): Rating =>
+    backendRating === 'Excellent' ? 'Excellent' : backendRating === 'Good' ? 'Good' : 'Needs Improvement';
 
-    // Initialize all owning units (strictly normalized to Level 2)
-    const distinctUnits = Array.from(new Set(owningUnits.map(u => getUnitLevel2(u)).filter(u => Boolean(u) && u !== 'سازمان' && u !== 'Organization')));
-    distinctUnits.forEach((unit) => {
-      dataMap[unit] = {
-        unit,
-        projectsCount: 0,
-        completedCount: 0,
-        inProgressCount: 0,
-        delayedCount: 0,
-        totalPlannedProgress: 0,
-        totalActualProgress: 0,
-        performanceScores: [],
-        projects: [],
-      };
-    });
-
-    // Populate data with enriched projects
-    enrichedProjects.forEach((proj) => {
-      const unit = getUnitLevel2(proj.owningUnit) || (language === 'fa' ? 'تعیین نشده' : 'Unassigned');
-      if (!dataMap[unit]) {
-        dataMap[unit] = {
-          unit,
-          projectsCount: 0,
-          completedCount: 0,
-          inProgressCount: 0,
-          delayedCount: 0,
-          totalPlannedProgress: 0,
-          totalActualProgress: 0,
-          performanceScores: [],
-          projects: [],
-        };
-      }
-
-      const info = dataMap[unit];
-      info.projectsCount++;
-      info.projects.push(proj);
-
-      if (proj.status === 'Completed') info.completedCount++;
-      else if (proj.status === 'In Progress') info.inProgressCount++;
-
-      // Delayed: actual progress is significantly behind planned (more than 5%)
-      if (proj.actualProgress < proj.plannedProgress - 5) {
-        info.delayedCount++;
-      }
-
-      info.totalPlannedProgress += proj.plannedProgress || 0;
-      info.totalActualProgress += proj.actualProgress || 0;
-      info.performanceScores.push(proj.performance || 0);
-    });
-
-    return Object.values(dataMap).map((item) => {
-      const avgPlanned = item.projectsCount > 0 ? item.totalPlannedProgress / item.projectsCount : 0;
-      const avgActual = item.projectsCount > 0 ? item.totalActualProgress / item.projectsCount : 0;
-      
-      // Average of performance scores capped at 100 per project for fairness, or direct average
-      const avgPerformance = item.performanceScores.length > 0
-        ? item.performanceScores.reduce((sum, val) => sum + Math.min(100, val), 0) / item.performanceScores.length
-        : 0;
-
-      let rating: 'Excellent' | 'Good' | 'Needs Improvement' = 'Needs Improvement';
-      if (avgPerformance >= 90) rating = 'Excellent';
-      else if (avgPerformance >= 70) rating = 'Good';
-
-      return {
-        ...item,
-        avgPlanned,
-        avgActual,
-        avgPerformance,
-        variance: avgActual - avgPlanned,
-        rating,
-      };
-    }).sort((a, b) => b.avgPerformance - a.avgPerformance);
-  }, [enrichedProjects, owningUnits, language]);
-
-  // Overall Organization Stats
-  const orgStats = useMemo(() => {
-    const totalProjects = enrichedProjects.length;
-    if (totalProjects === 0) return { avgPerformance: 0, topUnit: 'N/A', inProgress: 0, delayed: 0 };
-
-    const sumPerformance = enrichedProjects.reduce((sum, p) => sum + Math.min(100, p.performance), 0);
-    const avgPerformance = sumPerformance / totalProjects;
-
-    const topUnit = unitPerformanceData[0]?.projectsCount > 0 ? unitPerformanceData[0].unit : 'N/A';
-    const inProgress = enrichedProjects.filter(p => p.status === 'In Progress').length;
-    const delayed = enrichedProjects.filter(p => p.actualProgress < p.plannedProgress - 5).length;
-
+  // --- 2. DEPARTMENT PERFORMANCE ---
+  const unitPerformanceData = useMemo(() => (reports.units?.units ?? []).map((u) => {
+    const avgPlanned = u.averagePlannedProgress ?? 0;
+    const avgActual = u.averageActualProgress ?? 0;
     return {
-      avgPerformance,
-      topUnit,
-      inProgress,
-      delayed,
+      unit: u.unitId ? u.unitName : (language === 'fa' ? 'تعیین نشده' : 'Unassigned'),
+      projectsCount: u.projectCount,
+      completedCount: u.completedProjects,
+      inProgressCount: u.runningProjects,
+      delayedCount: u.delayedProjects,
+      avgPlanned,
+      avgActual,
+      avgPerformance: u.averagePerformance ?? 0,
+      variance: u.averageDeviation ?? avgActual - avgPlanned,
+      rating: ratingOf(u.rating),
+      projects: projectsByIds(u.projectIds),
     };
-  }, [enrichedProjects, unitPerformanceData]);
+  }).sort((a, b) => b.avgPerformance - a.avgPerformance), [reports.units, enrichedProjects, language]);
 
+  const orgStats = useMemo(() => {
+    const summary = reports.units?.summary;
+    if (!summary || summary.projectCount === 0) return { avgPerformance: 0, topUnit: 'N/A', inProgress: 0, delayed: 0 };
+    return {
+      avgPerformance: summary.averagePerformance ?? 0,
+      topUnit: unitPerformanceData[0]?.projectsCount > 0 ? unitPerformanceData[0].unit : 'N/A',
+      inProgress: summary.runningProjects,
+      delayed: summary.delayedProjects,
+    };
+  }, [reports.units, unitPerformanceData]);
 
-  // --- 3. PROJECT MANAGERS PERFORMANCE EVALUATION CALCULATIONS ---
-  const managerPerformanceData = useMemo(() => {
-    const managersMap: Record<string, {
-      managerId: string;
-      projectsCount: number;
-      completedCount: number;
-      inProgressCount: number;
-      delayedCount: number;
-      totalPlannedProgress: number;
-      totalActualProgress: number;
-      performanceScores: number[];
-      projects: EnrichedProject[];
-    }> = {};
-
-    enrichedProjects.forEach((proj) => {
-      const pmId = proj.projectManagerId;
-      if (pmId === null) return;
-
-      if (!managersMap[pmId]) {
-        managersMap[pmId] = {
-          managerId: pmId,
-          projectsCount: 0,
-          completedCount: 0,
-          inProgressCount: 0,
-          delayedCount: 0,
-          totalPlannedProgress: 0,
-          totalActualProgress: 0,
-          performanceScores: [],
-          projects: [],
-        };
-      }
-
-      const info = managersMap[pmId];
-      info.projectsCount++;
-      info.projects.push(proj);
-
-      if (proj.status === 'Completed') info.completedCount++;
-      else if (proj.status === 'In Progress') info.inProgressCount++;
-
-      if (proj.actualProgress < proj.plannedProgress - 5) {
-        info.delayedCount++;
-      }
-
-      info.totalPlannedProgress += proj.plannedProgress || 0;
-      info.totalActualProgress += proj.actualProgress || 0;
-      info.performanceScores.push(proj.performance || 0);
-    });
-
-    return Object.values(managersMap).map((item) => {
-      const avgPlanned = item.projectsCount > 0 ? item.totalPlannedProgress / item.projectsCount : 0;
-      const avgActual = item.projectsCount > 0 ? item.totalActualProgress / item.projectsCount : 0;
-      const avgPerformance = item.performanceScores.length > 0
-        ? item.performanceScores.reduce((sum, val) => sum + Math.min(100, val), 0) / item.performanceScores.length
-        : 0;
-
-      let rating: 'Excellent' | 'Good' | 'Needs Improvement' = 'Needs Improvement';
-      if (avgPerformance >= 90) rating = 'Excellent';
-      else if (avgPerformance >= 70) rating = 'Good';
-
+  // --- 3. PROJECT MANAGERS ---
+  const managerPerformanceData = useMemo(() => reports.managers
+    .filter(m => m.managerUserId !== null)
+    .map((m) => {
+      const avgPlanned = m.averagePlannedProgress ?? 0;
+      const avgActual = m.averageActualProgress ?? 0;
       return {
-        ...item,
-        managerName: getManagerName(item.managerId),
+        managerId: m.managerUserId as string,
+        managerName: getManagerName(m.managerUserId),
+        projectsCount: m.projectCount,
+        completedCount: m.completedProjects,
+        inProgressCount: m.runningProjects,
+        delayedCount: m.delayedProjects,
         avgPlanned,
         avgActual,
-        avgPerformance,
+        avgPerformance: m.averagePerformance ?? 0,
         variance: avgActual - avgPlanned,
-        rating,
+        rating: ratingOf(m.rating),
+        projects: projectsByIds(m.projectIds),
       };
-    }).sort((a, b) => b.avgPerformance - a.avgPerformance);
-  }, [enrichedProjects, users]);
+    }).sort((a, b) => b.avgPerformance - a.avgPerformance), [reports.managers, enrichedProjects, users, language]);
 
-  const selectedManagerProjects = useMemo(() => {
-    if (selectedManagerId === null) return [];
-    return enrichedProjects.filter((p) => p.projectManagerId === selectedManagerId);
-  }, [selectedManagerId, enrichedProjects]);
+  const selectedManagerProjects = useMemo(
+    () => managerPerformanceData.find(m => m.managerId === selectedManagerId)?.projects ?? [],
+    [selectedManagerId, managerPerformanceData]);
 
-
-  // --- 4. UNIT / STATUS MATRIX CALCULATIONS ---
+  // --- 4. UNIT / STATUS MATRIX ---
+  const UI_STATUS_OF: Record<string, WorkStatus> = { Draft: 'Planning', Active: 'In Progress', OnHold: 'On Hold', Completed: 'Completed' };
   const matrixData = useMemo(() => {
-    // Standard statuses
-    const statuses: WorkStatus[] = ['Planning', 'In Progress', 'On Hold', 'Completed'];
-
-    // Map units (strictly Level 2) to statuses count
+    const matrix = reports.matrix;
+    const columns = (matrix?.statuses ?? []).map((name, index) => ({ index, status: UI_STATUS_OF[name] })).filter(c => c.status !== undefined);
+    const statuses = columns.map(c => c.status);
     const grid: Record<string, Record<WorkStatus, number>> = {};
     const unitTotals: Record<string, number> = {};
-    const statusTotals: Record<WorkStatus, number> = {
-      'Planning': 0,
-      'In Progress': 0,
-      'On Hold': 0,
-      'Completed': 0,
-    };
+    const cellProjects: Record<string, string[]> = {};
+    const statusTotals = { 'Planning': 0, 'In Progress': 0, 'On Hold': 0, 'Completed': 0 } as Record<WorkStatus, number>;
     let grandTotal = 0;
-
-    const distinctUnits = Array.from(new Set(owningUnits.map(u => getUnitLevel2(u)).filter(u => Boolean(u) && u !== 'سازمان' && u !== 'Organization')));
-
-    distinctUnits.forEach((unit) => {
-      grid[unit] = {
-        'Planning': 0,
-        'In Progress': 0,
-        'On Hold': 0,
-        'Completed': 0,
-      };
+    const distinctUnits: string[] = [];
+    for (const row of matrix?.rows ?? []) {
+      const unit = row.unitId ? row.unitName : (language === 'fa' ? 'تعیین نشده' : 'Unassigned');
+      distinctUnits.push(unit);
+      grid[unit] = { 'Planning': 0, 'In Progress': 0, 'On Hold': 0, 'Completed': 0 };
       unitTotals[unit] = 0;
-    });
-
-    enrichedProjects.forEach((p) => {
-      const unit = getUnitLevel2(p.owningUnit) || (language === 'fa' ? 'تعیین نشده' : 'Unassigned');
-      const status = p.status;
-
-      if (!grid[unit]) {
-        grid[unit] = {
-          'Planning': 0,
-          'In Progress': 0,
-          'On Hold': 0,
-          'Completed': 0,
-        };
-        unitTotals[unit] = 0;
-        if (!distinctUnits.includes(unit)) {
-          distinctUnits.push(unit);
-        }
+      for (const column of columns) {
+        const count = row.counts[column.index] ?? 0;
+        grid[unit][column.status] = count;
+        unitTotals[unit] += count;
+        statusTotals[column.status] += count;
+        grandTotal += count;
+        cellProjects[`${unit}|${column.status}`] = row.projectIdsByStatus?.[column.index] ?? [];
       }
-
-      if (grid[unit] && grid[unit][status] !== undefined) {
-        grid[unit][status]++;
-        unitTotals[unit]++;
-        statusTotals[status]++;
-        grandTotal++;
-      }
-    });
-
-    return {
-      grid,
-      unitTotals,
-      statusTotals,
-      grandTotal,
-      statuses,
-      distinctUnits,
-    };
-  }, [enrichedProjects, owningUnits, language]);
+    }
+    return { grid, unitTotals, statusTotals, grandTotal, statuses, distinctUnits, cellProjects };
+  }, [reports.matrix, language]);
 
   // List of projects corresponding to the selected cell in the Matrix
   const matrixSelectedProjects = useMemo(() => {
     const { unit, status } = selectedCell;
     if (!unit && !status) return [];
-
-    return enrichedProjects.filter((p) => {
-      const pUnit = getUnitLevel2(p.owningUnit) || (language === 'fa' ? 'تعیین نشده' : 'Unassigned');
-      const unitMatch = unit ? pUnit === unit : true;
-      const statusMatch = status ? p.status === status : true;
-      return unitMatch && statusMatch;
-    });
-  }, [selectedCell, enrichedProjects, language]);
+    const ids = new Set<string>();
+    for (const [key, list] of (Object.entries(matrixData.cellProjects) as [string, string[]][])) {
+      const [cellUnit, cellStatus] = key.split('|');
+      if ((!unit || cellUnit === unit) && (!status || cellStatus === status)) list.forEach(id => ids.add(id));
+    }
+    return enrichedProjects.filter(p => ids.has(p.id));
+  }, [selectedCell, matrixData, enrichedProjects]);
 
 
   // Helper for localization numbers
@@ -392,6 +261,13 @@ export const ReportsDashboardPage = ({
           <span className="material-symbols-outlined" style={{ fontSize: '1.2rem', color: '#fff' }}>picture_as_pdf</span>
         </button>
       </div>
+
+      {reportError && (
+        <div id="reports-error" style={{ padding: '0.75rem 1rem', marginBottom: '1rem', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: '0.85rem' }}>{reportError}</div>
+      )}
+      {reportsLoading && !reportError && (
+        <div style={{ padding: '0.5rem 0', color: 'var(--text-muted, #64748b)', fontSize: '0.85rem' }}>...</div>
+      )}
 
       {/* TABS SELECTOR */}
       <div className="reports-tab-bar" style={{

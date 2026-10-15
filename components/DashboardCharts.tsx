@@ -3,6 +3,7 @@ import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
 import { useSCurve } from '../directory/useSCurve';
+import { useSprintChartData } from '../directory/useSprintChart';
 import { LocalizationContext } from '../context';
 import { 
     Project, ProjectActivity, Calendar, ProgressUpdate, KanbanStatus
@@ -176,41 +177,7 @@ export const AgileProgressChartInline = ({
     const { language } = useContext(LocalizationContext);
     const [chartMode, setChartMode] = useState<'burnup' | 'burndown'>('burnup');
 
-    const sprintCount = project.sprintCount || Math.max(1, ...(project.kanbanTasks || []).map(t => t.sprintNumber || 1));
-    
-    const chartData = useMemo(() => {
-        const tasks = project.kanbanTasks || [];
-        const data = [];
-        let cumulativeCompleted = 0;
-        let cumulativeTotal = 0;
-
-        for (let s = 1; s <= sprintCount; s++) {
-            const sprintTasks = tasks.filter(t => (t.sprintNumber || 1) === s);
-            const totalInSprint = sprintTasks.length;
-            cumulativeTotal += totalInSprint;
-
-            const completedInSprint = sprintTasks.filter(t => {
-                if (t.status === 'Done') return true;
-                const hasApproval = progressUpdates.some(pu => pu.projectId === project.id && pu.taskId === t.id && pu.status === 'Approved');
-                if (hasApproval) return true;
-                return false;
-            }).length;
-
-            cumulativeCompleted += completedInSprint;
-            const remaining = Math.max(0, cumulativeTotal - cumulativeCompleted);
-
-            data.push({
-                sprintName: language === 'fa' ? `اسپرینت ${toPersianDigits(s)}` : `Sprint ${s}`,
-                sprintNum: s,
-                total: cumulativeTotal,
-                completed: cumulativeCompleted,
-                remaining: remaining,
-                sprintCompleted: completedInSprint,
-                sprintTotal: totalInSprint
-            });
-        }
-        return data;
-    }, [project, progressUpdates, sprintCount, language]);
+    const chartData = useSprintChartData(project.id, language, (project.kanbanTasks || []).map(t => `${t.id}:${t.status}:${t.sprintNumber}`).join(','));
 
     return (
         React.createElement("div", { className: "form-section" },
@@ -254,7 +221,7 @@ export const AgileProgressChartInline = ({
                         }, language === 'fa' ? 'نمودار برن داون (Burn Down)' : 'Burn Down')
                     ),
                     React.createElement("div", { style: { fontSize: '0.85rem', color: 'var(--text-secondary)' } },
-                        language === 'fa' ? `تعداد اسپرینت‌ها: ${toPersianDigits(sprintCount)}` : `Total Sprints: ${sprintCount}`
+                        language === 'fa' ? `تعداد اسپرینت‌ها: ${toPersianDigits(chartData.length)}` : `Total Sprints: ${chartData.length}`
                     )
                 ),
                 React.createElement("div", { style: { width: '100%', height: 350 } },

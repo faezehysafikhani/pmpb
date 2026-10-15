@@ -3,7 +3,7 @@ import { LocalizationContext, ThemeContext } from '../context';
 import { 
     User, Project, ProjectRisk, ProjectStakeholder, getStakeholderStrategy, ProjectStatusUpdate, ProjectDelayReason, ProjectDocument, ProjectActivity, KanbanTask, 
     ProgressUpdate, TranslationKey, KanbanStatus, ActionItem, WorkStatus, PlannedProgressType, ScheduleSnapshot, TaskPriority,
-    DynamicWorkflowSettings, WorkflowEntityType,
+    WorkflowEntityType,
     RiskProbabilityImpactDefinitions, RiskLevelThresholdDefinition, DEFAULT_RISK_DEFINITIONS,
     StakeholderStrategies, DEFAULT_STAKEHOLDER_STRATEGIES,
     Calendar, ProjectApprovalRecord, ProjectContractPermissions, ProjectInvoicePermissions,
@@ -592,13 +592,12 @@ export const ProjectRisksTab = ({
     onApprove, 
     onReject, 
     currentUserId, 
-    requiresWorkflow, 
+    requiresWorkflow = true, 
     hideApprovalStatus = false, 
     project, 
     onUpdateRisks, 
     onUpdateRiskDefinitions, 
     onUpdateRiskMatrixColors,
-    dynamicWorkflowSettings,
     onSaveAction,
     calendars = [],
     projects = [],
@@ -620,7 +619,6 @@ export const ProjectRisksTab = ({
     onUpdateRisks?: (newRisks: ProjectRisk[]) => void,
     onUpdateRiskDefinitions?: (definitions: RiskProbabilityImpactDefinitions) => void,
     onUpdateRiskMatrixColors?: (colors: Record<string, RiskCellColor>) => void,
-    dynamicWorkflowSettings?: DynamicWorkflowSettings,
     onSaveAction?: (action: ActionItem) => void,
     calendars?: Calendar[],
     projects?: Project[],
@@ -746,7 +744,6 @@ export const ProjectRisksTab = ({
                 isPMOrAdmin,
                 currentUserId,
                 requiresWorkflow,
-                dynamicWorkflowSettings,
                 users,
                 onApplyRisks: (newRisks, replace) => {
                     let updated: ProjectRisk[] = [];
@@ -1216,12 +1213,11 @@ export const ProjectStakeholdersTab = ({
     onApprove, 
     onReject, 
     currentUserId, 
-    requiresWorkflow, 
+    requiresWorkflow = true, 
     hideApprovalStatus = false, 
     project, 
     onUpdateStakeholders,
     onUpdateStakeholderStrategies,
-    dynamicWorkflowSettings,
     onSaveAction,
     calendars = [],
     projects = [],
@@ -1242,7 +1238,6 @@ export const ProjectStakeholdersTab = ({
     project?: Project,
     onUpdateStakeholders?: (newStakeholders: ProjectStakeholder[]) => void,
     onUpdateStakeholderStrategies?: (strategies: StakeholderStrategies) => void,
-    dynamicWorkflowSettings?: DynamicWorkflowSettings,
     onSaveAction?: (action: ActionItem) => void,
     calendars?: Calendar[],
     projects?: Project[],
@@ -1347,7 +1342,6 @@ export const ProjectStakeholdersTab = ({
                 isPMOrAdmin,
                 currentUserId,
                 requiresWorkflow,
-                dynamicWorkflowSettings,
                 users,
                 onApplyStakeholders: (newStakeholders, replace) => {
                     let updated: ProjectStakeholder[] = [];
@@ -1566,7 +1560,7 @@ export const ProjectStakeholdersTab = ({
     );
 };
 
-export const ProjectStatusTab = ({ statusUpdates, users, onEdit, onDelete, isReadOnly = false, isPMOrAdmin = false, onApprove, onReject, currentUserId, requiresWorkflow, hideApprovalStatus = false, project, dynamicWorkflowSettings }: { 
+export const ProjectStatusTab = ({ statusUpdates, users, onEdit, onDelete, isReadOnly = false, isPMOrAdmin = false, onApprove, onReject, currentUserId, requiresWorkflow = true, hideApprovalStatus = false, project }: { 
     statusUpdates: ProjectStatusUpdate[], 
     users?: User[],
     onEdit: (update: ProjectStatusUpdate) => void,
@@ -1579,7 +1573,6 @@ export const ProjectStatusTab = ({ statusUpdates, users, onEdit, onDelete, isRea
     requiresWorkflow?: boolean,
     hideApprovalStatus?: boolean,
     project?: Project,
-    dynamicWorkflowSettings?: DynamicWorkflowSettings
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const [historyModalInfo, setHistoryModalInfo] = useState<{ title: string; typeLabel: string; history?: any[]; submittedBy?: number; isApproved?: boolean; isRejected?: boolean } | null>(null);
@@ -1682,7 +1675,7 @@ export const ProjectStatusTab = ({ statusUpdates, users, onEdit, onDelete, isRea
     );
 };
 
-export const ProjectDelayReasonsTab = ({ delayReasons, users, onEdit, onDelete, isReadOnly = false, isPMOrAdmin = false, onApprove, onReject, currentUserId, requiresWorkflow, hideApprovalStatus = false, project, dynamicWorkflowSettings }: { 
+export const ProjectDelayReasonsTab = ({ delayReasons, users, onEdit, onDelete, isReadOnly = false, isPMOrAdmin = false, onApprove, onReject, currentUserId, requiresWorkflow = true, hideApprovalStatus = false, project }: { 
     delayReasons: ProjectDelayReason[], 
     users?: User[],
     onEdit: (reason: ProjectDelayReason) => void,
@@ -1695,7 +1688,6 @@ export const ProjectDelayReasonsTab = ({ delayReasons, users, onEdit, onDelete, 
     requiresWorkflow?: boolean,
     hideApprovalStatus?: boolean,
     project?: Project,
-    dynamicWorkflowSettings?: DynamicWorkflowSettings
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const [historyModalInfo, setHistoryModalInfo] = useState<{ title: string; typeLabel: string; history?: any[]; submittedBy?: number; isApproved?: boolean; isRejected?: boolean } | null>(null);
@@ -1798,7 +1790,7 @@ export const ProjectDelayReasonsTab = ({ delayReasons, users, onEdit, onDelete, 
     );
 };
 
-export const ProjectDocumentsTab = ({ documents, users, onEdit, onDelete, isReadOnly = false, isPMOrAdmin = false, onApprove, onReject, currentUserId, requiresWorkflow, hideApprovalStatus = false, project, onUpdateDocuments, onDownload, dynamicWorkflowSettings }: { 
+export const ProjectDocumentsTab = ({ documents, users, onEdit, onDelete, isReadOnly = false, isPMOrAdmin = false, onApprove, onReject, currentUserId, requiresWorkflow = true, hideApprovalStatus = false, project, onUpdateDocuments, onDownload }: { 
     documents: ProjectDocument[], 
     users?: User[],
     onEdit: (doc: ProjectDocument) => void,
@@ -1814,7 +1806,6 @@ export const ProjectDocumentsTab = ({ documents, users, onEdit, onDelete, isRead
     onUpdateDocuments?: (newDocs: ProjectDocument[]) => void,
     /** Saves the uploaded file (from the backend) to the user's computer. */
     onDownload?: (doc: ProjectDocument) => void,
-    dynamicWorkflowSettings?: DynamicWorkflowSettings
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const isFa = language === 'fa';
@@ -1993,13 +1984,12 @@ export const ProjectDocumentsTab = ({ documents, users, onEdit, onDelete, isRead
     );
 };
 
-export const ProjectScheduleTab = ({ project, users, calendars, isReadOnly = false, currentUser, dynamicWorkflowSettings }: { 
+export const ProjectScheduleTab = ({ project, users, calendars, isReadOnly = false, currentUser }: { 
     project: Project, 
     users: User[], 
     calendars: any[], 
     isReadOnly?: boolean,
     currentUser?: User | null,
-    dynamicWorkflowSettings?: DynamicWorkflowSettings
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const [localSchedule, setLocalSchedule] = useState<ProjectActivity[]>(project.schedule || []);
@@ -2418,13 +2408,12 @@ export const ProjectScheduleTab = ({ project, users, calendars, isReadOnly = fal
     );
 };
 
-export const ProjectKanbanTab = ({ project, users, progressUpdates, onAddKanbanStatusUpdate, isReadOnly = false, dynamicWorkflowSettings }: { 
+export const ProjectKanbanTab = ({ project, users, progressUpdates, onAddKanbanStatusUpdate, isReadOnly = false }: { 
     project: Project, 
     users: User[], 
     progressUpdates: ProgressUpdate[],
     onAddKanbanStatusUpdate?: (projectId: string, taskId: string, newStatus: KanbanStatus, comment: string) => void,
     isReadOnly?: boolean,
-    dynamicWorkflowSettings?: DynamicWorkflowSettings
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const registers = useProjects();

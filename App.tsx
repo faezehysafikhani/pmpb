@@ -3,7 +3,7 @@
 import React, { useState, useContext, useEffect, useMemo } from 'react';
 import { AuthProvider, useAuth } from './directory/AuthContext';
 import { DirectoryProvider, useDirectory } from './directory/DirectoryContext';
-import { ProjectsProvider, useProjects, localPartsOf } from './directory/ProjectsContext';
+import { ProjectsProvider, useProjects } from './directory/ProjectsContext';
 import { ActionsProvider, useActions } from './directory/ActionsContext';
 import { StrategyProvider, useStrategy } from './directory/StrategyContext';
 import { GovernanceProvider, useGovernance } from './directory/GovernanceContext';
@@ -55,7 +55,6 @@ const AppContent = () => {
     const unitNodes = directory.unitNodes;
 
     // Projects belong to the backend too (charter, people, unit, calendar, dates, status, team, approval state).
-    // The parts of a project that are not connected yet (risks, schedule, documents ...) ride along inside it via setProjects.
     const projectsState = useProjects();
     const projects = projectsState.projects;
     const setProjects = projectsState.setProjects;
@@ -315,11 +314,6 @@ const AppContent = () => {
         if (!stayOnPage) {
             handleNavigate('portfolio');
         }
-    };
-
-    // A screen hands back its whole copy of the project; only the parts the backend does not hold are taken from it (the rest would be stale).
-    const handlePartialUpdateProject = (updatedProject: Project) => {
-        setProjects(prev => prev.map(p => p.id === updatedProject.id ? { ...p, ...localPartsOf(updatedProject) } : p));
     };
 
     /** The AI assistant hands back a whole project: its other parts stay as they were, what it added to the registers is saved on the backend. */
@@ -613,7 +607,6 @@ const AppContent = () => {
                             onSaveProject={handleSaveProject}
                             onUpdateProject={handleUpdateProject}
                             onCheckProject={projectsState.checkProject}
-                            onPartialUpdate={handlePartialUpdateProject}
                             existingProject={pageContext.project}
                             fromPage={pageContext.from}
                             initialTab={pageContext.initialTab}

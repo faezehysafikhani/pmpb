@@ -111,25 +111,10 @@ export const backendTypeOf = (type: ProjectType): number => (type === 'agile' ? 
  * What the backend owns about a project. Everything else on the screens' Project object (risks, schedule, documents, tab
  * settings ...) is still kept by the browser until its own area is connected; see ProjectsContext.
  */
-export const PROJECT_CORE_KEYS: (keyof Project)[] = [
-  'id', 'type', 'approvalStatus', 'name', 'code', 'cost', 'ownerId', 'projectManagerId', 'startDate', 'endDate', 'status',
-  'owningUnit', 'description', 'goal', 'requirements', 'constraintsAndAssumptions', 'calendarId', 'teamMemberIds',
-  // the registers (phase 3)
-  'risks', 'stakeholders', 'statusUpdates', 'delayReasons', 'documents', 'riskDefinitions', 'riskMatrixColors', 'stakeholderStrategies',
-  // the plan (phase 4)
-  'schedule', 'kanbanTasks', 'sprintCount', 'weightingType', 'plannedProgressType', 'timeWeightFactor', 'costWeightFactor', 'complexityWeightFactor',
-  'scheduleSnapshots', 'progressFigures', 'scheduleInfo',
-  // contracts and invoices (phase 6)
-  'contracts', 'invoices', 'contractsSummary',
-  // governance (phase 7): visible sections, own approval chains, contract / invoice access are the backend's
-  'enabledTabs', 'tabWorkflows', 'customWorkflowSettings', 'contractPermissions', 'invoicePermissions', 'currentApproverId'
-];
-
 export function toUiProject(
   project: BackendProject,
   unitPathById: Map<string, string>,
   memberIds: string[],
-  extras: Partial<Project> | undefined,
   registers?: Partial<Project>,
   planning?: Partial<Project>,
   contractsData?: Partial<Project>
@@ -138,7 +123,6 @@ export function toUiProject(
   const constraintsAndAssumptions = [project.constraints, project.assumptions].filter(Boolean).join('\n');
   return {
     ...defaultProjectExtras(),
-    ...(extras ?? {}),
     // Whatever an older build kept in this browser about the registers is never used: the backend holds them now.
     risks: [], stakeholders: [], statusUpdates: [], delayReasons: [], documents: [],
     riskDefinitions: undefined, riskMatrixColors: undefined, stakeholderStrategies: undefined,

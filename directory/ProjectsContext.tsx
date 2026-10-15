@@ -7,7 +7,7 @@ import { useDirectory } from './DirectoryContext';
 import type { Outcome } from './DirectoryContext';
 import { BackendApprovalStatus, projects as projectsApi, projectTeam } from '../services/backend/projects';
 import type { BackendProjectMember } from '../services/backend/projects';
-import { backendStatusOf, backendTypeOf, PROJECT_CORE_KEYS, toProjectBody, toUiProject } from '../services/backend/mappers';
+import { backendStatusOf, backendTypeOf, toProjectBody, toUiProject } from '../services/backend/mappers';
 import {
   approvals, delayReasons as delayReasonsApi, documents as documentsApi, riskResponses as riskResponsesApi, risks as risksApi,
   stakeholders as stakeholdersApi, statusUpdates as statusUpdatesApi
@@ -90,31 +90,6 @@ interface ProjectsState extends PlanningOps, ContractOps {
 }
 
 const ProjectsContext = React.createContext<ProjectsState>(null as unknown as ProjectsState);
-
-const EXTRAS_KEY = 'pms_project_extras';
-
-/** Approval bookkeeping belongs to the backend's workflow; it is never kept here. */
-const NEVER_KEPT: (keyof Project)[] = ['approvalHistory', 'approvalComment', 'submissionDate', 'currentApprovalStageIndex'];
-
-type Extras = Record<string, Partial<Project>>;
-
-function readExtras(): Extras {
-  try {
-    return JSON.parse(localStorage.getItem(EXTRAS_KEY) || '{}');
-  } catch {
-    return {};
-  }
-}
-
-/** The parts of a project that no backend area holds yet (what a screen's copy may overwrite). */
-export function localPartsOf(project: Project): Partial<Project> {
-  return extrasOf(project);
-}
-
-function extrasOf(project: Project): Partial<Project> {
-  const skip = new Set<string>([...PROJECT_CORE_KEYS, ...NEVER_KEPT]);
-  return Object.fromEntries(Object.entries(project).filter(([key]) => !skip.has(key))) as Partial<Project>;
-}
 
 const fail = (message?: string, code?: string): ProjectOutcome => ({ ok: false, message, code });
 
@@ -240,10 +215,9 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
     else if (planning.error) setError(planning.error);
     else if (contracts.error) setError(contracts.error);
 
-    const extras = readExtras();
     const mapped = list.map(p => {
       const project = toUiProject(
-        p, directory.unitPathById, membersByProject.get(p.id) ?? [], extras[p.id],
+        p, directory.unitPathById, membersByProject.get(p.id) ?? [],
         withLocalOnly(registers.byProject.get(p.id) as ProjectRegisters), planning.byProject.get(p.id), contracts.byProject.get(p.id));
       const flow = projectFlow.get(p.id);
       if (!flow) return project;
@@ -277,24 +251,10 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
     }
   }, [session, reload, directory.loading]);
 
-  // Keep the not-yet-connected parts of each project (only those) so a reload does not lose them.
+  // The AI notes on documents are the only thing still kept in this browser (see rememberLocalOnly).
   React.useEffect(() => {
-    if (!loaded.current) return;
-    const kept = readExtras();
-    for (const project of projects) kept[project.id] = extrasOf(project);
-    try {
-      localStorage.setItem(EXTRAS_KEY, JSON.stringify(kept));
-    } catch { /* storage full or blocked: the parts simply are not kept */ }
-    rememberLocalOnly(projects);
+    if (loaded.current) rememberLocalOnly(projects);
   }, [projects]);
-
-  const remember = (id: string, project: Project) => {
-    const kept = readExtras();
-    kept[id] = extrasOf(project);
-    try {
-      localStorage.setItem(EXTRAS_KEY, JSON.stringify(kept));
-    } catch { /* see above */ }
-  };
 
   const bodyOf = React.useCallback((project: Project) => {
     if (project.owningUnit && !directory.unitIdByPath.has(project.owningUnit)) return null;
@@ -303,7 +263,6 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
 
   /** Applies the team and, when asked, the approval submission to a project the backend already holds. */
   const finish = React.useCallback(async (id: string, project: Project, submit: boolean): Promise<ProjectOutcome> => {
-    remember(id, project);
     if (tenantId) {
       const team = await projectTeam.set(tenantId, id, (project.teamMemberIds ?? []).map(String));
       if (!team.ok) {
@@ -583,11 +542,6 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
     deleteProject: async id => {
       const removed = await projectsApi.remove(id);
       if (!removed.ok) return fail(removed.error?.message, removed.error?.code);
-      const kept = readExtras();
-      delete kept[id];
-      try {
-        localStorage.setItem(EXTRAS_KEY, JSON.stringify(kept));
-      } catch { /* see above */ }
       await reload();
       return { ok: true };
     },

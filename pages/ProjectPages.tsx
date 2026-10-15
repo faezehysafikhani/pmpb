@@ -86,14 +86,13 @@ export const CreateProjectPage = ({ onNavigate }: { onNavigate: (page: string, c
 };
 
 // --- ProjectDetailsPage ---
-export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProject, onUpdateProject, onCheckProject, onPartialUpdate, existingProject, calendars, setInfoModal, progressUpdates, onAddKanbanStatusUpdate, actions, owningUnits, projectStatuses, fromPage, initialTab, currentUser, onSaveAction, projects = [] }: { 
+export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProject, onUpdateProject, onCheckProject, existingProject, calendars, setInfoModal, progressUpdates, onAddKanbanStatusUpdate, actions, owningUnits, projectStatuses, fromPage, initialTab, currentUser, onSaveAction, projects = [] }: { 
     projectType: ProjectType;
     users: User[];
     onNavigate: (page: string, context?: any) => void; 
     onSaveProject: (project: Project, mode: 'draft' | 'sent') => void;
     onUpdateProject: (project: Project, mode: 'draft' | 'sent', stayOnPage?: boolean) => void;
     onCheckProject?: (project: Project) => Promise<{ ok: boolean; code?: string; message?: string }>;
-    onPartialUpdate: (project: Project) => void;
     existingProject?: Project | null;
     calendars: Calendar[];
     setInfoModal: (modal: { title: string, message: string } | null) => void;
@@ -437,18 +436,9 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
     const handleRejectDocument = (id: string, comment?: string) => void decide('document')(id, false, comment);
     const handleDownloadDocument = (doc: ProjectDocument) => void runChange(() => registers.downloadDocument(doc));
 
-    const WEIGHTING_KEYS: (keyof Project)[] = ['weightingType', 'plannedProgressType', 'timeWeightFactor', 'costWeightFactor', 'complexityWeightFactor'];
+    // How activities are weighed and planned progress is read is the backend's setting for the project (its sections and approval chains are saved by the settings tab itself).
     const handleSaveSettings = async (settings: Partial<Project>) => {
-        // How activities are weighed and planned progress is read is the backend's setting; the remaining switches (visible tabs, workflows)
-        // are not connected yet and stay with the project here.
-        const touchesWeighting = WEIGHTING_KEYS.some(key => key in settings);
-        const rest = Object.fromEntries(Object.entries(settings).filter(([key]) => !WEIGHTING_KEYS.includes(key as keyof Project))) as Partial<Project>;
-        if (touchesWeighting && !(await runChange(projectId => registers.saveWaterfallSettings(projectId, settings)))) return;
-        if (Object.keys(rest).length > 0) {
-            const updatedProject = { ...projectData, ...rest } as Project;
-            setProjectData(updatedProject);
-            onPartialUpdate(updatedProject);
-        }
+        if (!(await runChange(projectId => registers.saveWaterfallSettings(projectId, settings)))) return;
         setInfoModal({ title: t('updateProject'), message: t('projectUpdatedSuccess') });
     };
 
