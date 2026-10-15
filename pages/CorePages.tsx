@@ -1,7 +1,8 @@
 
 import React, { useContext, useState, useEffect, useRef, FormEvent, MouseEvent, ReactElement, useMemo } from 'react';
 import { LocalizationContext, ThemeContext } from '../context';
-import { User, UserRole, TranslationKey, VisibilitySettings, DynamicWorkflowSettings, DEFAULT_DYNAMIC_WORKFLOW_SETTINGS } from '../types';
+import { User, UserRole, TranslationKey, VisibilitySettings, DynamicWorkflowSettings } from '../types';
+import { useGovernance } from '../directory/GovernanceContext';
 import { toPersianDigits, appLogoUrl, appLogoWatermarkUrl } from '../utils';
 import { FeaturesHandbook } from '../components/FeaturesHandbook';
 import { DynamicWorkflowSettingsEditor } from '../components/DynamicWorkflowSettingsEditor';
@@ -413,31 +414,11 @@ export const MainMenu = ({ onNavigate, currentUser, overdueProjectsCount, pendin
 export const SettingsPage = ({ 
   onNavigate, 
   currentUser,
-  users = [],
-  isProjectWorkflowEnabled,
-  setIsProjectWorkflowEnabled,
-  allowApprovedProgress = false,
-  setAllowApprovedProgress,
-  defaultProjectApproverId,
-  setDefaultProjectApproverId,
-  visibilitySettings,
-  setVisibilitySettings,
-  dynamicWorkflowSettings,
-  setDynamicWorkflowSettings
+  users = []
 }: { 
   onNavigate: (page: string) => void, 
   currentUser: User | null,
-  users?: User[],
-  isProjectWorkflowEnabled: boolean,
-  setIsProjectWorkflowEnabled: (val: boolean) => void,
-  allowApprovedProgress?: boolean,
-  setAllowApprovedProgress?: (val: boolean) => void,
-  defaultProjectApproverId?: number | null,
-  setDefaultProjectApproverId?: (id: number | null) => void,
-  visibilitySettings?: VisibilitySettings,
-  setVisibilitySettings?: React.Dispatch<React.SetStateAction<VisibilitySettings>>,
-  dynamicWorkflowSettings?: DynamicWorkflowSettings,
-  setDynamicWorkflowSettings?: React.Dispatch<React.SetStateAction<DynamicWorkflowSettings>>
+  users?: User[]
 }): ReactElement => {
   const { t, language, setLanguage } = useContext(LocalizationContext);
   const { theme } = useContext(ThemeContext);
@@ -457,10 +438,36 @@ export const SettingsPage = ({
     return users.filter(u => u.role === 'Admin');
   }, [users]);
 
-  const toggleVisibilitySetting = (key: keyof VisibilitySettings) => {
-    if (!setVisibilitySettings || !visibilitySettings) return;
-    setVisibilitySettings(prev => ({ ...prev, [key]: !prev[key] }));
+  // Every switch on this page is the backend's: a change is sent at once and what the backend now holds is shown.
+  const governance = useGovernance();
+  const visibilitySettings: VisibilitySettings = governance.visibility;
+  const allowApprovedProgress = governance.allowApprovedProgress;
+  const charterStages = governance.workflow.charter ?? [];
+  const isProjectWorkflowEnabled = governance.configured.charter && charterStages.length > 0;
+  const firstCharterApprover = charterStages[0]?.approverId;
+  const defaultProjectApproverId = firstCharterApprover && firstCharterApprover !== 'ROLE_PM' && firstCharterApprover !== 'ROLE_OWNER' ? String(firstCharterApprover) : null;
+
+  const report = async (work: Promise<{ ok: boolean; message?: string }>) => {
+    const outcome = await work;
+    if (!outcome.ok) window.alert(outcome.message || (language === 'fa' ? 'انجام نشد.' : 'The change could not be saved.'));
+    return outcome.ok;
   };
+
+  const toggleVisibilitySetting = (key: keyof VisibilitySettings) =>
+    void report(governance.saveSwitches({ ...governance.visibility, [key]: !governance.visibility[key] }, governance.allowApprovedProgress));
+  const setAllowApprovedProgress = (value: boolean) => void report(governance.saveSwitches(governance.visibility, value));
+  const setIsProjectWorkflowEnabled = (value: boolean) => void report(governance.setWorkflowEnabled('charter', value));
+  /** Everything sent for approval as a new project goes to this person; the rest of the chain stays as it is. */
+  const setDefaultProjectApproverId = (userId: string | null) => {
+    const stages = charterStages.length ? charterStages : [{ id: 'charter_1', stageNumber: 1, stageTitle: language === 'fa' ? 'تایید نهایی' : 'Final approval', approverId: 'ROLE_PM' as const }];
+    void report(governance.saveWorkflow({ ...governance.workflow, charter: stages.map((stage, i) => (i === 0 ? { ...stage, approverId: userId ?? 'ROLE_PM' } : stage)) }));
+  };
+
+  // The approval chains are edited as a draft and saved together.
+  const [workflowDraft, setWorkflowDraft] = useState<DynamicWorkflowSettings>(governance.workflow);
+  const [draftTouched, setDraftTouched] = useState(false);
+  useEffect(() => { if (!draftTouched) setWorkflowDraft(governance.workflow); }, [governance.workflow, draftTouched]);
+  const anyUnconfigured = Object.values(governance.configured).some(configured => !configured);
 
   const settingsOptions = useMemo(() => {
     const list = [
@@ -679,8 +686,7 @@ export const SettingsPage = ({
               id: "default-project-approver-select",
               value: defaultProjectApproverId || '',
               onChange: (e) => {
-                const val = e.target.value ? parseInt(e.target.value, 10) : null;
-                if (setDefaultProjectApproverId) setDefaultProjectApproverId(val);
+                setDefaultProjectApproverId(e.target.value || null);
               },
               className: "form-control",
               style: { maxWidth: '350px', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color, #cbd5e1)', backgroundColor: 'var(--card-bg-color, #ffffff)', color: 'var(--text-color, #1e293b)' }
@@ -695,13 +701,13 @@ export const SettingsPage = ({
           // Checkbox 2: Confirmed progress upon rejection
           React.createElement("div", {
             style: { display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer', borderTop: '1px solid var(--border-color, #e2e8f0)', paddingTop: '1rem' },
-            onClick: () => setAllowApprovedProgress && setAllowApprovedProgress(!allowApprovedProgress)
+            onClick: () => setAllowApprovedProgress(!allowApprovedProgress)
           },
             React.createElement("input", {
               type: "checkbox",
               id: "allow-approved-progress-checkbox",
               checked: allowApprovedProgress,
-              onChange: (e) => { e.stopPropagation(); if (setAllowApprovedProgress) setAllowApprovedProgress(e.target.checked); },
+              onChange: (e) => { e.stopPropagation(); setAllowApprovedProgress(e.target.checked); },
               style: { width: '1.2rem', height: '1.2rem', marginTop: '0.15rem', cursor: 'pointer' }
             }),
             React.createElement("div", null,
@@ -731,13 +737,31 @@ export const SettingsPage = ({
                 ? 'در این بخش می‌توانید برای هر یک از بخش‌های منشور، پیشرفت، ریسک‌ها، ذینفعان، آخرین وضعیت، دلایل تاخیر و اسناد پروژه، مراحل تایید چندسطحی تعریف نمایید. پیش‌فرض تایید کننده در تمامی مراحل مدیر پروژه مربوطه است.'
                 : 'Configure multi-level approval stages for charter, progress, risks, stakeholders, status, delays, and documents. The default approver is the Project Manager.'
             ),
-            dynamicWorkflowSettings && setDynamicWorkflowSettings && React.createElement(DynamicWorkflowSettingsEditor, {
-              settings: dynamicWorkflowSettings,
-              onUpdateSettings: (newSettings) => setDynamicWorkflowSettings(newSettings),
+            anyUnconfigured && React.createElement("div", {
+              id: "workflow-unconfigured-banner",
+              style: { padding: '0.75rem 1rem', marginBottom: '0.75rem', borderRadius: '8px', background: isDark ? 'rgba(217,119,6,0.15)' : '#fffbeb', border: '1px solid #fcd34d', fontSize: '0.82rem', color: isDark ? '#fcd34d' : '#92400e', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }
+            },
+              React.createElement("span", null, language === 'fa'
+                ? 'برای برخی بخش‌ها هنوز گردش کار تعریف نشده است؛ ثبت‌های آن بخش‌ها بدون تأیید پذیرفته می‌شوند.'
+                : 'Some areas have no approval chain yet; their items are accepted without approval.'),
+              React.createElement("button", {
+                id: "apply-workflow-defaults-btn", type: "button", className: "btn btn-secondary",
+                onClick: async () => { if (await report(governance.applyWorkflowDefaults())) setDraftTouched(false); }
+              }, language === 'fa' ? 'اعمال تنظیمات پیش‌فرض' : 'Apply the standard chains')
+            ),
+            React.createElement(DynamicWorkflowSettingsEditor, {
+              settings: workflowDraft,
+              onUpdateSettings: (newSettings) => { setWorkflowDraft(newSettings); setDraftTouched(true); },
               users: users,
               isDark: isDark,
               language: language
-            })
+            }),
+            React.createElement("div", { style: { display: 'flex', justifyContent: 'flex-end', marginTop: '0.75rem' } },
+              React.createElement("button", {
+                id: "save-workflow-btn", type: "button", className: "btn btn-primary", disabled: !draftTouched,
+                onClick: async () => { if (await report(governance.saveWorkflow(workflowDraft))) setDraftTouched(false); }
+              }, language === 'fa' ? 'ذخیره مراحل تایید' : 'Save approval stages')
+            )
           )
         )
       ),

@@ -1,6 +1,6 @@
 import React, { useState, useContext } from 'react';
 import { createPortal } from 'react-dom';
-import { Project, ProjectStakeholder, getStakeholderStrategy, DynamicWorkflowSettings, DEFAULT_DYNAMIC_WORKFLOW_SETTINGS, resolveWorkflowApproverId, User, ProjectApprovalRecord } from '../types';
+import { Project, ProjectStakeholder, getStakeholderStrategy, User, ProjectApprovalRecord } from '../types';
 import { GoogleGenAI, Type } from '@google/genai';
 import { LocalizationContext } from '../context';
 import { getISODateString, getISODateTimeString, formatDate } from '../utils';
@@ -12,8 +12,6 @@ interface AiStakeholderModalProps {
   onApplyStakeholders: (newStakeholders: ProjectStakeholder[], replace: boolean) => void;
   isPMOrAdmin?: boolean;
   currentUserId?: number;
-  requiresWorkflow?: boolean;
-  dynamicWorkflowSettings?: DynamicWorkflowSettings;
   users?: User[];
 }
 
@@ -24,8 +22,6 @@ export const AiStakeholderModal: React.FC<AiStakeholderModalProps> = ({
   onApplyStakeholders,
   isPMOrAdmin = false,
   currentUserId,
-  requiresWorkflow = true,
-  dynamicWorkflowSettings,
   users
 }) => {
   const { language } = useContext(LocalizationContext);
@@ -241,30 +237,6 @@ Each stakeholder must contain:
   const handleApply = (replace: boolean) => {
     if (!generatedStakeholders || generatedStakeholders.length === 0) return;
 
-    const isOwnerOrPMOrAdmin = Boolean(
-      isPMOrAdmin ||
-      (currentUserId && (
-        String(project.projectManagerId) === String(currentUserId) ||
-        String(project.ownerId || 1) === String(currentUserId) ||
-        users?.find(u => String(u.id) === String(currentUserId))?.role === 'Admin'
-      ))
-    );
-
-    const shouldAutoApprove = isOwnerOrPMOrAdmin || requiresWorkflow === false;
-
-    let initialApproverId: string | undefined = undefined;
-    if (!shouldAutoApprove) {
-      const stages = dynamicWorkflowSettings?.stakeholders || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.stakeholders;
-      if (stages && stages[0]) {
-        initialApproverId = resolveWorkflowApproverId(stages[0].approverId, project, currentUserId);
-      } else {
-        initialApproverId = project.projectManagerId;
-      }
-    }
-
-    const currentUserObj = users?.find(u => String(u.id) === String(currentUserId));
-    const actorName = currentUserObj ? (currentUserObj.name ? `${currentUserObj.name} (${currentUserObj.username})` : currentUserObj.username) : (isFa ? 'کاربر' : 'User');
-
     const newStakeholders: ProjectStakeholder[] = generatedStakeholders.map((s, idx) => ({
       id: String(Date.now() + idx),
       name: s.name || (isFa ? 'ذینفع پروژه' : 'Stakeholder'),
@@ -272,20 +244,10 @@ Each stakeholder must contain:
       interest: s.interest === 'Low' ? 'Low' : 'High',
       strategy: getStakeholderStrategy(s.power === 'Low' ? 'Low' : 'High', s.interest === 'Low' ? 'Low' : 'High', language),
       requirements: s.requirements || '',
-      isApproved: shouldAutoApprove,
+      // Whether it needs approval, and who approves, is decided by the backend's workflow when the item is saved.
+      isApproved: false,
       isRejected: false,
-      submittedBy: currentUserId,
-      currentStageIndex: 0,
-      currentApproverId: shouldAutoApprove ? undefined : initialApproverId,
-      approvalHistory: [
-        {
-          action: shouldAutoApprove ? ('Approved' as const) : ('Submitted' as const),
-          date: getISODateTimeString(),
-          actor: actorName,
-          stageTitle: shouldAutoApprove ? (isFa ? 'تایید مستقیم (پیشنهاد هوش مصنوعی)' : 'Direct Approval (AI Suggested)') : (isFa ? 'ارسال اولیه (پیشنهاد هوش مصنوعی)' : 'Initial Submission (AI Suggested)'),
-          comment: shouldAutoApprove ? (isFa ? 'تولید شده توسط هوش مصنوعی و تایید مستقیم' : 'AI Generated & Approved') : (isFa ? 'تولید شده توسط هوش مصنوعی - در انتظار تایید' : 'AI Generated - Pending Approval')
-        }
-      ]
+      submittedBy: currentUserId
     }));
 
     onApplyStakeholders(newStakeholders, replace);

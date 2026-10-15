@@ -61,9 +61,12 @@ Plan and the list of backend additions: `docs/ui-integration/PLAN.md` in the bac
 | Project statuses list (reference tables page) | the backend's fixed set, shown read-only (a custom status could not be saved) |
 | Schedule (WBS, dependencies, weights, float, planned / actual progress), weighting settings, saved copies, S-curve, MS Project import / export, agile tasks and sprint count, activity progress reports and task status requests (approved through the Workflow backend), project progress figures | **connected** (phase 4) |
 | Actions (+ recurrence pattern, status requests with approval), risk-response verification, strategies, alignment matrix, knowledge library, contracts, addenda, invoices | **connected** (phases 5-6) |
-| Dashboards, reports, visibility switches, workflow stage editor, delegations | still the old local/mock data (phases 7-8) |
-| Approval centre (register items) | decisions go to the backend workflow; delegation, stage editor and the full centre are phase 7 |
+| Approval chains (organisation-wide and per project), approval centre (projects, register items, reports, contracts, status requests; waiting-for-me comes from the backend's inbox), delegation of work, visibility switches, "confirmed progress on rejection" switch, per-project visible sections and contract / invoice access settings | **connected** (phase 7): `directory/GovernanceContext.tsx`, `services/backend/governance.ts` |
+| Dashboards, reports | still the old local/mock data (phase 8) |
 
-Approving a submitted project needs the approval centre (phase 7): until a workflow is defined for projects the backend approves a project as soon as it is sent.
+A project (or any item) is approved at once when the backend has no approval chain for it: use "apply the standard chains" on the settings page (it calls `POST /api/integrations/project-workflow/settings/apply-defaults`) to create them.
+Phase 7 notes: who may decide a step is enforced by the backend; the browser no longer resolves approvers or stages (`resolveWorkflowApproverId`, the default chains and `isActionVisibleToUser` are gone; the action list is already filtered by the backend's visibility rules).
+Handing an item to someone else: the backend records the hand-over and ends chains (`/api/project-management/delegations`); the screen then sets the item's assignee itself (the delegation module does not own the item).
+Stored but not enforced by the backend: the per-project contract / invoice access matrices. Not offered: a project chain with no step ("no approval for this project") - the backend supports it, the editor still requires one stage.
 Until a phase is done, its screens still run on the mock data in `data.ts`/`localStorage` and may not work with real user ids.
 The AI features are not part of this work and are unchanged.

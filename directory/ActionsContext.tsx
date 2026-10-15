@@ -5,6 +5,8 @@ import { useDirectory } from './DirectoryContext';
 import { useProjects } from './ProjectsContext';
 import type { ProjectOutcome } from './ProjectsContext';
 import { actionsApi, ActionSubject } from '../services/backend/actions';
+import { visibleActionsApi } from '../services/backend/governance';
+import { useGovernance } from './GovernanceContext';
 import type { BackendAction, BackendActionStatusRequest } from '../services/backend/actions';
 import { backendActionStatusOf, toActionBody, toUiAction, toUiActionStatusRequest } from '../services/backend/actionMappers';
 import { buildPeople } from '../services/backend/registerMappers';
@@ -37,6 +39,7 @@ export const ActionsProvider = ({ children }: { children: React.ReactNode }) => 
   const { session } = useAuth();
   const directory = useDirectory();
   const projects = useProjects().projects;
+  const visibility = useGovernance().visibility;
   const tenantId = session?.user.tenantId;
   const people = React.useMemo(() => buildPeople(directory.users), [directory.users]);
 
@@ -51,8 +54,11 @@ export const ActionsProvider = ({ children }: { children: React.ReactNode }) => 
   const load = React.useCallback(async () => {
     if (!session) return;
     setLoading(true);
-    const [list, asked] = await Promise.all([actionsApi.list(), actionsApi.statusRequests()]);
-    const problem = !list.ok ? list.error?.message : !asked.ok ? asked.error?.message : null;
+    const [everything, asked, visible] = await Promise.all([actionsApi.list(), actionsApi.statusRequests(), visibleActionsApi.ids()]);
+    // Which actions this user may see is the backend's visibility rules (owner, responsible, approvers, team, organisation heads ...).
+    const visibleIds = new Set((visible.value?.actions ?? []).map(a => a.id));
+    const list = visible.ok ? { ...everything, value: (everything.value ?? []).filter(a => visibleIds.has(a.id)) } : { ...everything, value: [] as BackendAction[] };
+    const problem = !everything.ok ? everything.error?.message : !visible.ok ? visible.error?.message : !asked.ok ? asked.error?.message : null;
     setError(problem ?? null);
 
     const sent = (items: { id: string; approvalStatus: number }[]) => items.filter(i => i.approvalStatus !== 0).map(i => i.id);
@@ -84,7 +90,8 @@ export const ActionsProvider = ({ children }: { children: React.ReactNode }) => 
     } else if (!directory.loading) {
       void load();
     }
-  }, [session, load, directory.loading]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, load, directory.loading, JSON.stringify(visibility)]);
 
   const actions = React.useMemo(
     () => raw.map(a => toUiAction(a, instances.get(a.id), people, { unitPathById: directory.unitPathById, projects })),

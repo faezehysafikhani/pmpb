@@ -120,7 +120,9 @@ export const PROJECT_CORE_KEYS: (keyof Project)[] = [
   'schedule', 'kanbanTasks', 'sprintCount', 'weightingType', 'plannedProgressType', 'timeWeightFactor', 'costWeightFactor', 'complexityWeightFactor',
   'scheduleSnapshots', 'progressFigures', 'scheduleInfo',
   // contracts and invoices (phase 6)
-  'contracts', 'invoices', 'contractsSummary'
+  'contracts', 'invoices', 'contractsSummary',
+  // governance (phase 7): visible sections, own approval chains, contract / invoice access are the backend's
+  'enabledTabs', 'tabWorkflows', 'customWorkflowSettings', 'contractPermissions', 'invoicePermissions', 'currentApproverId'
 ];
 
 export function toUiProject(
@@ -180,8 +182,7 @@ export function defaultProjectExtras(): Partial<Project> {
     sprintCount: 3,
     weightingType: 'manual',
     plannedProgressType: 'continuous',
-    scheduleSnapshots: [],
-    tabWorkflows: { charter: true, schedule: true, team: true, risks: true, stakeholders: true, status: true, delays: true, docs: true, actions: true }
+    scheduleSnapshots: []
   };
 }
 

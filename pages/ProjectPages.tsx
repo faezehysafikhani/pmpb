@@ -12,15 +12,16 @@ import {
     User, Project, ProjectType, KanbanTask, Calendar, ProjectApprovalStatus,
     EnrichedProject, Strategy, AlignmentLevel, ProjectStrategyAlignment, KanbanStatus,
     UserRole, TranslationKey, ProgressUpdate, ActionItem, WorkStatus, ProjectActivity, ProjectRisk, ProjectStakeholder, ProjectStatusUpdate, ProjectDelayReason, ProjectDocument,
-    PlannedProgressType, ScheduleSnapshot, VisibilitySettings, WorkflowEntityType, DEFAULT_DYNAMIC_WORKFLOW_SETTINGS, resolveWorkflowApproverId, DynamicWorkflowSettings,
-    ProjectApprovalRecord, getEffectiveProjectWorkflowStages, isProjectTabCustomWorkflow, ProjectContract, ProjectInvoice
+    PlannedProgressType, ScheduleSnapshot, WorkflowEntityType,
+    ProjectApprovalRecord, ProjectContract, ProjectInvoice
 } from '../types';
 import { useAuth } from '../directory/AuthContext';
 import { useProjects } from '../directory/ProjectsContext';
+import { useGovernance } from '../directory/GovernanceContext';
 import type { RegisterKind } from '../services/backend/registers';
 import { getRuntimeUnitTree } from '../services/backend/runtimeDirectory';
 import { projectErrorText } from '../services/backend/errors';
-import { pickCalendar, getISODateString, getISODateTimeString, enrichProjectWithProgress, calculateScheduleTreeAndProgress, formatDate, toPersianDigits, isActionVisibleToUser, getUnitLevel1And2, exportDashboardToLandscapePdf } from '../utils';
+import { pickCalendar, getISODateString, getISODateTimeString, enrichProjectWithProgress, calculateScheduleTreeAndProgress, formatDate, toPersianDigits, getUnitLevel1And2, exportDashboardToLandscapePdf } from '../utils';
 import { 
     OrgChartModal,
     ProjectHistoryModal,
@@ -85,7 +86,7 @@ export const CreateProjectPage = ({ onNavigate }: { onNavigate: (page: string, c
 };
 
 // --- ProjectDetailsPage ---
-export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProject, onUpdateProject, onCheckProject, onPartialUpdate, existingProject, calendars, setInfoModal, progressUpdates, onAddKanbanStatusUpdate, actions, owningUnits, projectStatuses, fromPage, initialTab, isProjectWorkflowEnabled, currentUser, defaultProjectApproverId, dynamicWorkflowSettings, onSaveAction, projects = [] }: { 
+export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProject, onUpdateProject, onCheckProject, onPartialUpdate, existingProject, calendars, setInfoModal, progressUpdates, onAddKanbanStatusUpdate, actions, owningUnits, projectStatuses, fromPage, initialTab, currentUser, onSaveAction, projects = [] }: { 
     projectType: ProjectType;
     users: User[];
     onNavigate: (page: string, context?: any) => void; 
@@ -103,10 +104,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
     projectStatuses: string[];
     fromPage?: string;
     initialTab?: string;
-    isProjectWorkflowEnabled?: boolean;
     currentUser?: User | null;
-    defaultProjectApproverId?: number | null;
-    dynamicWorkflowSettings?: DynamicWorkflowSettings;
     onSaveAction?: (action: ActionItem) => void;
     projects?: Project[];
 }): ReactElement => {
@@ -133,19 +131,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
         calendarId: (calendars.find(c => c.isDefault) || calendars[0])?.id,
         startDate: getISODateString(),
         endDate: getISODateString(),
-        ownerId: currentUser?.id || 1,
-        approver1Id: defaultProjectApproverId || users.find(u => u.role === 'Admin')?.id || 1,
-        tabWorkflows: {
-          charter: true,
-          schedule: true,
-          team: true,
-          risks: true,
-          stakeholders: true,
-          status: true,
-          delays: true,
-          docs: true,
-          actions: true
-        }
+        ownerId: currentUser?.id || 1
       }
     );
 
@@ -236,26 +222,18 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
 
         // (Whether the activities' weights add up to 100 is checked by the backend when the project is sent for approval.)
         
-        const mode = (action === 'send') ? 'sent' : 'draft';
-        const defaultAdmin = users.find(u => u.role === 'Admin');
-        const selectedApprover = projectData.approver1Id || defaultProjectApproverId || defaultAdmin?.id || 1;
-        
+        // Whether a sent project waits for approval, and for whom, is the backend's workflow: it decides when the project is sent.
         if (!isEditing) { // Creating new
-            const baseProject = { id: '', ...projectData, approver1Id: selectedApprover };
+            const baseProject = { id: '', ...projectData };
             if (action === 'save_draft') {
-                const draftProject = { ...baseProject, approvalStatus: 'Draft' } as Project;
-                onSaveProject(draftProject, 'draft');
+                onSaveProject({ ...baseProject, approvalStatus: 'Draft' } as Project, 'draft');
             } else { // send
-                const status = isProjectWorkflowEnabled !== false ? 'Pending Approval' : 'Approved';
-                const projectToSend = { ...baseProject, approvalStatus: status, submissionDate: getISODateTimeString() } as Project;
-                onSaveProject(projectToSend, 'sent');
+                onSaveProject({ ...baseProject, submissionDate: getISODateTimeString() } as Project, 'sent');
             }
         } else { // Editing existing
-            const finalProjectData = { ...projectData, approver1Id: selectedApprover } as Project;
+            const finalProjectData = { ...projectData } as Project;
             if (action === 'send') { // Sending a draft for approval
-                const status = isProjectWorkflowEnabled !== false ? 'Pending Approval' : 'Approved';
-                const projectToSend = { ...finalProjectData, approvalStatus: status as any, submissionDate: getISODateTimeString() };
-                onUpdateProject(projectToSend, 'sent');
+                onUpdateProject({ ...finalProjectData, submissionDate: getISODateTimeString() }, 'sent');
             } else { // 'save_draft' or 'update' for an existing project.
                 const shouldStayOnPage = action === 'update' && (activeTab === 'schedule' || activeTab === 'team' || activeTab === 'charter');
                 onUpdateProject(finalProjectData, 'draft', shouldStayOnPage);
@@ -496,8 +474,12 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
         'agile': 'agileProject'
     };
 
+    // The sections a project shows are the backend's setting for it (all of them until it is changed).
+    const governance = useGovernance();
+    const projectSections = projectData.id ? governance.settingsOf(projectData.id).enabledTabs : undefined;
+
     const projectTabs = useMemo(() => {
-        const enabledTabs = projectData.enabledTabs || ['charter', 'schedule', 'team', 'risks', 'stakeholders', 'status', 'delays', 'docs', 'actions'];
+        const enabledTabs = projectSections ?? ['charter', 'schedule', 'team', 'risks', 'stakeholders', 'status', 'delays', 'docs', 'actions', 'contracts', 'invoices'];
         const tabs: { id: string, name: string }[] = [];
         
         const allTabs = [
@@ -526,7 +508,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
             tabs.push({ id: 'sprints', name: t('sprints') });
         }
         return tabs;
-    }, [t, projectType, projectData.enabledTabs, language]);
+    }, [t, projectType, projectSections, language]);
         
     const backIcon = language === 'fa' ? 'arrow_forward' : 'arrow_back';
 
@@ -539,7 +521,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
     const renderActiveTabContent = () => {
         const isPMOrAdmin = isPMOrOwnerOrAdmin;
         
-        const getFilteredTabItems = <T extends { isApproved?: boolean; submittedBy?: string; currentApproverId?: string; currentStageIndex?: number }>(items: T[], tabId: string): T[] => {
+        const getFilteredTabItems = <T extends { id?: string; isApproved?: boolean; submittedBy?: string; currentApproverId?: string }>(items: T[], tabId: string): T[] => {
             return items.filter(item => {
                 if (item.isApproved) return true;
                 const isSubmitter = currentUser && item.submittedBy === currentUser.id;
@@ -547,13 +529,8 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                 const isPM = currentUser && String(projectData.projectManagerId) === String(currentUser.id);
                 const isOwner = currentUser && String(projectData.ownerId || 1) === String(currentUser.id);
 
-                const entityKey = (tabId === 'status' ? 'status_updates' : tabId === 'delays' ? 'delay_reasons' : tabId === 'docs' ? 'documents' : tabId) as WorkflowEntityType;
-                const stages = getEffectiveProjectWorkflowStages(entityKey, projectData as Project, dynamicWorkflowSettings);
-                const currentStageIdx = item.currentStageIndex ?? 0;
-                const stage = stages?.[currentStageIdx] || stages?.[0];
-                const resolvedApproverId = item.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, projectData as Project) : projectData.projectManagerId);
-
-                const isApprover = currentUser && String(resolvedApproverId) === String(currentUser.id);
+                // Whose turn it is comes from the backend's workflow (a substitute's included).
+                const isApprover = currentUser && (String(item.currentApproverId) === String(currentUser.id) || governance.waitingForMe(item.id));
 
                 return isSubmitter || isAdmin || isPM || isOwner || isApprover;
             });
@@ -561,7 +538,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
 
         switch (activeTab) {
             case 'charter':
-                return React.createElement(ProjectCharterForm, { projectData: projectData, setProjectData: setProjectData, users: users, calendars: calendars, owningUnits: owningUnits, projectStatuses: projectStatuses, currentUser: currentUser, isReadOnly: !isPMOrOwnerOrAdmin, isProjectWorkflowEnabled: isProjectWorkflowEnabled, isEditing: isEditing });
+                return React.createElement(ProjectCharterForm, { projectData: projectData, setProjectData: setProjectData, users: users, calendars: calendars, owningUnits: owningUnits, projectStatuses: projectStatuses, currentUser: currentUser, isReadOnly: !isPMOrOwnerOrAdmin, isEditing: isEditing });
             case 'team':
                 return React.createElement(ProjectTeamTab, { 
                     allUsers: users, 
@@ -583,8 +560,6 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                     onApprove: handleApproveRisk,
                     onReject: handleRejectRisk,
                     currentUserId: currentUser?.id,
-                    requiresWorkflow: projectData.tabWorkflows ? projectData.tabWorkflows.risks !== false : true,
-                    dynamicWorkflowSettings: dynamicWorkflowSettings,
                     onSaveAction: onSaveAction,
                     calendars: calendars,
                     projects: projects && projects.length > 0 ? projects : (projectData.id ? [projectData as Project] : []),
@@ -604,8 +579,6 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                     onApprove: handleApproveStakeholder,
                     onReject: handleRejectStakeholder,
                     currentUserId: currentUser?.id,
-                    requiresWorkflow: projectData.tabWorkflows ? projectData.tabWorkflows.stakeholders !== false : true,
-                    dynamicWorkflowSettings: dynamicWorkflowSettings,
                     onSaveAction: onSaveAction,
                     calendars: calendars,
                     projects: projects && projects.length > 0 ? projects : (projectData.id ? [projectData as Project] : []),
@@ -622,9 +595,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                     isPMOrAdmin: isPMOrOwnerOrAdmin,
                     onApprove: handleApproveStatus,
                     onReject: handleRejectStatus,
-                    currentUserId: currentUser?.id,
-                    requiresWorkflow: projectData.tabWorkflows ? projectData.tabWorkflows.status !== false : true,
-                    dynamicWorkflowSettings: dynamicWorkflowSettings
+                    currentUserId: currentUser?.id
                 });
             case 'delays':
                 return React.createElement(ProjectDelayReasonsTab, { 
@@ -636,9 +607,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                     isPMOrAdmin: isPMOrOwnerOrAdmin,
                     onApprove: handleApproveDelay,
                     onReject: handleRejectDelay,
-                    currentUserId: currentUser?.id,
-                    requiresWorkflow: projectData.tabWorkflows ? projectData.tabWorkflows.delays !== false : true,
-                    dynamicWorkflowSettings: dynamicWorkflowSettings
+                    currentUserId: currentUser?.id
                 });
             case 'docs':
                 return React.createElement(ProjectDocumentsTab, { 
@@ -660,9 +629,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                     isPMOrAdmin: isPMOrOwnerOrAdmin,
                     onApprove: handleApproveDocument,
                     onReject: handleRejectDocument,
-                    currentUserId: currentUser?.id,
-                    requiresWorkflow: projectData.tabWorkflows ? projectData.tabWorkflows.docs !== false : true,
-                    dynamicWorkflowSettings: dynamicWorkflowSettings
+                    currentUserId: currentUser?.id
                 });
              case 'schedule':
                 if (projectData.id) {
@@ -672,8 +639,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                             users: users,
                             progressUpdates: progressUpdates,
                             onAddKanbanStatusUpdate: onAddKanbanStatusUpdate,
-                            isReadOnly: !isPMOrOwnerOrAdmin,
-                            dynamicWorkflowSettings: dynamicWorkflowSettings
+                            isReadOnly: !isPMOrOwnerOrAdmin
                         });
                     } else if (projectData.type === 'waterfall') {
                          return React.createElement(ProjectScheduleTab, { 
@@ -681,8 +647,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                             users: users,
                             calendars: calendars,
                             isReadOnly: !isPMOrOwnerOrAdmin,
-                            currentUser: currentUser,
-                            dynamicWorkflowSettings: dynamicWorkflowSettings
+                            currentUser: currentUser
                         });
                     }
                 }
@@ -711,7 +676,6 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                         onViewSnapshot: (snapshot) => onNavigate('view_snapshot', { snapshot, calendar: projectCalendar, project: projectData as Project }),
                         currentUser: currentUser,
                         users: users,
-                        dynamicWorkflowSettings: dynamicWorkflowSettings,
                         isReadOnly: !isPMOrOwnerOrAdmin
                     });
                  }
@@ -995,7 +959,7 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
 };
 
 // --- ProjectPortfolioPage ---
-export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, onNavigate, progressUpdates, owningUnits, visibilitySettings, onDeleteProject, onDeleteAction }: { 
+export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, onNavigate, progressUpdates, owningUnits, onDeleteProject, onDeleteAction }: { 
     projects: Project[], 
     actions: ActionItem[],
     users: User[], 
@@ -1003,7 +967,6 @@ export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, on
     onNavigate: (page: string, context?: any) => void,
     progressUpdates: ProgressUpdate[],
     owningUnits: string[],
-    visibilitySettings?: VisibilitySettings,
     onDeleteProject?: (id: string) => void,
     onDeleteAction?: (id: string) => void
 }): ReactElement => {
@@ -1021,14 +984,6 @@ export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, on
     const [actionHistoryModalId, setActionHistoryModalId] = useState<number | null>(null);
     
     const auth = useAuth();
-    const defaultSettings: VisibilitySettings = {
-        viewByOwner: true,
-        viewByManagerOrResponsible: true,
-        viewByApprovers: true,
-        viewByResources: true,
-        viewByOrgHeads: true,
-    };
-    const activeVisibilitySettings = visibilitySettings || defaultSettings;
 
     const unitNodes = useMemo(() => getRuntimeUnitTree(), []);
 
@@ -1107,7 +1062,6 @@ export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, on
     const filteredActions = useMemo(() => {
         const lowerCaseFilter = filterText.toLowerCase();
         return actions
-            .filter(a => isActionVisibleToUser(a, currentUser, activeVisibilitySettings, users, unitNodes))
             .filter(a => {
                 const nameMatch = filterText ? a.title.toLowerCase().includes(lowerCaseFilter) : true;
                 const unitMatch = unitFilter ? getUnitLevel1And2(a.owningUnit) === unitFilter : true;
@@ -1115,7 +1069,7 @@ export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, on
                 const typeMatch = typeFilter === 'all' ? true : (typeFilter === 'action');
                 return nameMatch && unitMatch && statusMatch && typeMatch;
             });
-    }, [actions, currentUser, activeVisibilitySettings, users, unitNodes, filterText, unitFilter, statusFilter, typeFilter]);
+    }, [actions, filterText, unitFilter, statusFilter, typeFilter]);
 
     type WrappedPortfolioItem = { isProject: boolean; project?: Project; action?: ActionItem; id: string };
 
@@ -2048,9 +2002,7 @@ export const ProjectSpecificDashboardPage = ({ users, calendars, onNavigate, pro
     }, [project, calendars]);
 
     const getFilteredDashboardItems = <T extends { isApproved?: boolean; submittedBy?: number }>(items: T[], tabId: string): T[] => {
-        const requiresWorkflow = !!enrichedProject.tabWorkflows?.[tabId];
-        if (!requiresWorkflow) return items;
-        
+        // Dashboards count what has been approved; what needs approval (or none) is the backend's workflow.
         return items.filter(item => item.isApproved === true);
     };
 

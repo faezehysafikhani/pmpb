@@ -1,12 +1,12 @@
 
 
 import React, { useState, useContext, useEffect, useMemo } from 'react';
-import { initialDelegations } from './data';
 import { AuthProvider, useAuth } from './directory/AuthContext';
 import { DirectoryProvider, useDirectory } from './directory/DirectoryContext';
 import { ProjectsProvider, useProjects, localPartsOf } from './directory/ProjectsContext';
 import { ActionsProvider, useActions } from './directory/ActionsContext';
 import { StrategyProvider, useStrategy } from './directory/StrategyContext';
+import { GovernanceProvider, useGovernance } from './directory/GovernanceContext';
 import { projectErrorText } from './services/backend/errors';
 import type { ProjectOutcome } from './directory/ProjectsContext';
 import { toUiUser } from './services/backend/mappers';
@@ -21,14 +21,9 @@ import {
     WorkStatus,
     PROJECT_WORK_STATUSES,
     KnowledgeDocument,
-    Delegation,
-    VisibilitySettings,
-    DynamicWorkflowSettings,
-    DEFAULT_DYNAMIC_WORKFLOW_SETTINGS,
-    resolveWorkflowApproverId,
-    getEffectiveProjectWorkflowStages
+    Delegation
 } from './types';
-import { enrichProjectWithProgress, pickCalendar, getISODateString, getISODateTimeString, calculateScheduleTreeAndProgress, isActionVisibleToUser, toPersianDigits } from './utils';
+import { enrichProjectWithProgress, pickCalendar, getISODateString, getISODateTimeString, calculateScheduleTreeAndProgress, toPersianDigits } from './utils';
 import { LocalizationProvider, LocalizationContext, ThemeProvider } from './context';
 import { LoginPage, MainMenu, SettingsPage } from './pages/CorePages';
 import { UserManagementPage, TaskCenterPage, ApprovalCenterPage } from './pages/UserAndTaskPages';
@@ -75,97 +70,18 @@ const AppContent = () => {
     const alignments = strategyState.alignments;
     const knowledgeDocuments = strategyState.knowledgeDocuments;
 
-    // Progress reports on activities and status requests on agile tasks belong to the backend (with their approval); the ones that are not
-    // connected yet (action status, risk response, charter changes) are still kept in this browser.
-    const [localProgressUpdates, setProgressUpdates] = useState<ProgressUpdate[]>(() => {
-        try {
-            const saved = localStorage.getItem('pms_progress_updates');
-            const kept: ProgressUpdate[] = saved ? JSON.parse(saved) : [];
-            return kept.filter(up => !up.activityId && !up.taskId && !up.actionId).map(up => ({ ...up, id: String(up.id) }));
-        } catch (e) {
-            console.error("Failed to parse progress updates from localStorage", e);
-            localStorage.removeItem('pms_progress_updates');
-            return [];
-        }
-    });
-    const progressUpdates = useMemo(
-        () => [...projectsState.progressUpdates, ...actionsState.updates, ...localProgressUpdates],
-        [projectsState.progressUpdates, actionsState.updates, localProgressUpdates]);
+    // Approval chains, who sees what, hand-overs of work and each project's own switches belong to the backend.
+    const governance = useGovernance();
+    const allowApprovedProgress = governance.allowApprovedProgress;
+    const delegations = governance.delegations;
 
-    
+    // Progress reports on activities, status requests on agile tasks and on actions belong to the backend (with their approval).
+    const progressUpdates = useMemo(
+        () => [...projectsState.progressUpdates, ...actionsState.updates],
+        [projectsState.progressUpdates, actionsState.updates]);
+
     // The work statuses are the backend's fixed set (it moves a project between them); they are not editable here.
     const projectStatuses: string[] = PROJECT_WORK_STATUSES;
-    
-    const [delegations, setDelegations] = useState<Delegation[]>(() => {
-        try {
-            const saved = localStorage.getItem('pms_delegations');
-            return saved ? JSON.parse(saved) : initialDelegations;
-        } catch (e) {
-            console.error("Failed to parse delegations from localStorage", e);
-            localStorage.removeItem('pms_delegations');
-            return initialDelegations;
-        }
-    });
-
-    const [visibilitySettings, setVisibilitySettings] = useState<VisibilitySettings>(() => {
-        try {
-            const saved = localStorage.getItem('pms_visibility_settings');
-            if (saved) return JSON.parse(saved);
-        } catch (e) {}
-        return {
-            viewByOwner: true,
-            viewByManagerOrResponsible: true,
-            viewByApprovers: true,
-            viewByResources: true,
-            viewByOrgHeads: true,
-        };
-    });
-
-    const [isProjectWorkflowEnabled, setIsProjectWorkflowEnabled] = useState<boolean>(() => {
-        try {
-            const saved = localStorage.getItem('pms_project_workflow_enabled');
-            return saved !== 'false';
-        } catch (e) {
-            return true;
-        }
-    });
-
-    const [allowApprovedProgress, setAllowApprovedProgress] = useState<boolean>(() => {
-        try {
-            const saved = localStorage.getItem('pms_allow_approved_progress');
-            return saved === 'true';
-        } catch (e) {
-            return false;
-        }
-    });
-
-    useEffect(() => {
-        localStorage.setItem('pms_allow_approved_progress', String(allowApprovedProgress));
-    }, [allowApprovedProgress]);
-
-    const [dynamicWorkflowSettings, setDynamicWorkflowSettings] = useState<DynamicWorkflowSettings>(() => {
-        try {
-            const saved = localStorage.getItem('pms_dynamic_workflow_settings');
-            if (saved) {
-                return JSON.parse(saved);
-            }
-        } catch (e) {}
-        return DEFAULT_DYNAMIC_WORKFLOW_SETTINGS;
-    });
-
-    useEffect(() => {
-        try {
-            localStorage.setItem('pms_dynamic_workflow_settings', JSON.stringify(dynamicWorkflowSettings));
-        } catch (e) {}
-    }, [dynamicWorkflowSettings]);
-
-    const [defaultProjectApproverId, setDefaultProjectApproverId] = useState<string | null>(() => {
-        try {
-            const saved = localStorage.getItem('pms_default_project_approver_id');
-            if (saved) return saved;
-        } catch (e) {}
-        return null;
-    });
 
     // The signed-in person as the directory shows them (with their unit), until the directory has loaded: just what the session says.
     const currentUser: User | null = useMemo(
@@ -176,20 +92,7 @@ const AppContent = () => {
     const [pageContext, setPageContext] = useState<any>(null);
     const [loginError, setLoginError] = useState<string | null>(null);
     const [infoModal, setInfoModal] = useState<{title: string, message: string} | null>(null);
-    const [approvalCommentModalState, setApprovalCommentModalState] = useState<{ type: 'project' | 'progress', id: number, status: 'Approved' | 'Rejected', initialComment?: string } | null>(null);
-
-    // --- DATA PERSISTENCE ---
-    useEffect(() => { localStorage.setItem('pms_progress_updates', JSON.stringify(localProgressUpdates)); }, [localProgressUpdates]);
-    useEffect(() => { localStorage.setItem('pms_delegations', JSON.stringify(delegations)); }, [delegations]);
-    useEffect(() => { localStorage.setItem('pms_visibility_settings', JSON.stringify(visibilitySettings)); }, [visibilitySettings]);
-    useEffect(() => { localStorage.setItem('pms_project_workflow_enabled', String(isProjectWorkflowEnabled)); }, [isProjectWorkflowEnabled]);
-    useEffect(() => {
-        if (defaultProjectApproverId) {
-            localStorage.setItem('pms_default_project_approver_id', String(defaultProjectApproverId));
-        }
-    }, [defaultProjectApproverId]);
-    
-
+    const [approvalCommentModalState, setApprovalCommentModalState] = useState<{ type: 'project' | 'progress', id: string, status: 'Approved' | 'Rejected', initialComment?: string } | null>(null);
 
     // --- NOTIFICATION COUNTS ---
     const allProcessedActivities = useMemo(() => {
@@ -233,92 +136,31 @@ const AppContent = () => {
         }).length;
     }, [projects, currentUser]);
 
+    // What is waiting for the signed-in user: the backend's workflow says whose turn it is (a substitute's included); an administrator also sees every pending item.
     const pendingApprovalsCount = useMemo(() => {
         if (!currentUser) return 0;
-    
-        const itemsForCurrentUser = progressUpdates.filter(up => 
-            up.status === 'Pending Approval' && up.currentApproverId === currentUser.id
-        ).length;
-    
-        const projectApprovals = projects.filter(p => 
-            p.approvalStatus === 'Pending Approval' && 
-            (p.approver1Id ? String(p.approver1Id) === String(currentUser.id) : currentUser.role === 'Admin')
-        ).length;
+        const isAdmin = currentUser.role === 'Admin';
+        const mine = (subjectId: string | undefined, pending: boolean) => pending && !!subjectId && (isAdmin || governance.waitingForMe(subjectId));
+        const open = (item: { isApproved?: boolean; isRejected?: boolean }) => !item.isApproved && !item.isRejected;
 
-        let pendingTabItemsCount = 0;
-        projects.forEach(p => {
-            (p.risks || []).forEach(r => {
-                if (!r.isApproved && !r.isRejected) {
-                    const stages = getEffectiveProjectWorkflowStages('risks', p, dynamicWorkflowSettings);
-                    const currentStageIdx = r.currentStageIndex ?? 0;
-                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                    const targetApproverId = r.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
-                        pendingTabItemsCount++;
-                    }
-                }
-                if (r.isApproved && r.verificationStatus === 'Pending Approval') {
-                    const stages = getEffectiveProjectWorkflowStages('risks', p, dynamicWorkflowSettings);
-                    const currentStageIdx = r.verificationStageIndex ?? 0;
-                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                    const targetApproverId = r.verificationApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
-                        pendingTabItemsCount++;
-                    }
-                }
-            });
-
-            (p.stakeholders || []).forEach(sh => {
-                if (!sh.isApproved && !sh.isRejected) {
-                    const stages = getEffectiveProjectWorkflowStages('stakeholders', p, dynamicWorkflowSettings);
-                    const currentStageIdx = sh.currentStageIndex ?? 0;
-                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                    const targetApproverId = sh.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
-                        pendingTabItemsCount++;
-                    }
-                }
-            });
-
-            (p.statusUpdates || []).forEach(s => {
-                if (!s.isApproved && !s.isRejected) {
-                    const stages = getEffectiveProjectWorkflowStages('status_updates', p, dynamicWorkflowSettings);
-                    const currentStageIdx = s.currentStageIndex ?? 0;
-                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                    const targetApproverId = s.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
-                        pendingTabItemsCount++;
-                    }
-                }
-            });
-
-            (p.delayReasons || []).forEach(d => {
-                if (!d.isApproved && !d.isRejected) {
-                    const stages = getEffectiveProjectWorkflowStages('delay_reasons', p, dynamicWorkflowSettings);
-                    const currentStageIdx = d.currentStageIndex ?? 0;
-                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                    const targetApproverId = d.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
-                        pendingTabItemsCount++;
-                    }
-                }
-            });
-
-            (p.documents || []).forEach(doc => {
-                if (!doc.isApproved && !doc.isRejected) {
-                    const stages = getEffectiveProjectWorkflowStages('documents', p, dynamicWorkflowSettings);
-                    const currentStageIdx = doc.currentStageIndex ?? 0;
-                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                    const targetApproverId = doc.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
-                        pendingTabItemsCount++;
-                    }
-                }
-            });
-        });
-    
-        return itemsForCurrentUser + projectApprovals + pendingTabItemsCount;
-    }, [progressUpdates, projects, currentUser, dynamicWorkflowSettings]);
+        let count = progressUpdates.filter(up => mine(up.id, up.status === 'Pending Approval')).length;
+        for (const p of projects) {
+            if (mine(p.id, p.approvalStatus === 'Pending Approval')) count++;
+            for (const r of p.risks || []) {
+                if (mine(r.id, open(r))) count++;
+                if (r.isApproved && mine(r.verificationReportId, r.verificationStatus === 'Pending Approval')) count++;
+            }
+            for (const item of [...(p.stakeholders || []), ...(p.statusUpdates || []), ...(p.delayReasons || []), ...(p.documents || [])]) {
+                if (mine(item.id, open(item))) count++;
+            }
+            for (const c of p.contracts || []) {
+                if (mine(c.id, !!c.isPending)) count++;
+                for (const a of c.amendments || []) if (mine(a.id, !!a.isPending)) count++;
+            }
+            for (const i of p.invoices || []) if (mine(i.id, !!i.isPending)) count++;
+        }
+        return count;
+    }, [progressUpdates, projects, currentUser, governance]);
 
     const taskCenterNotificationCount = useMemo(() => {
         if (!currentUser) return 0;
@@ -401,10 +243,8 @@ const AppContent = () => {
     // The backend only sends the projects this user may see, so there is nothing to filter here.
     const visibleProjectsForCurrentUser = projects;
 
-    const visibleActionsForCurrentUser = useMemo(() => {
-        if (!currentUser) return [];
-        return actions.filter(a => isActionVisibleToUser(a, currentUser, visibilitySettings, users, unitNodes));
-    }, [actions, currentUser, visibilitySettings, users, unitNodes]);
+    // The backend's visibility rules decide which actions come back (see ActionsContext).
+    const visibleActionsForCurrentUser = actions;
 
 
     // --- NAVIGATION ---
@@ -599,243 +439,48 @@ const AppContent = () => {
             : { title: t('error'), message: outcome.message || t('error') });
     };
     
+    // Every approval - a project's, a progress report, a status request - is decided in the backend's workflow: it records the decision, moves to
+    // the next step or finishes, and checks that the signed-in person is the one who may decide.
     const handleSaveApprovalComment = (comment: string, statusOverride?: 'Approved' | 'Rejected', options?: { approvedProgress?: number; isPartialRejection?: boolean }) => {
         if (!approvalCommentModalState) return;
         const { type, id, status: defaultStatus } = approvalCommentModalState;
         const status = statusOverride || defaultStatus;
-        const currentActorName = currentUser ? (currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username) : 'کاربر';
-    
-        if (type === 'project') {
-            setProjects(prev => prev.map(p => {
-                if (p.id === id) {
-                    const stages = dynamicWorkflowSettings?.charter || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.charter;
-                    const currentStageIdx = p.currentApprovalStageIndex ?? 0;
-                    const currentStage = stages ? stages[currentStageIdx] : undefined;
-                    const stageTitle = currentStage ? currentStage.stageTitle : (language === 'fa' ? `مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Stage ${currentStageIdx + 1}`);
-
-                    const newHistory: ProjectApprovalRecord = {
-                        action: status,
-                        date: getISODateTimeString(),
-                        actor: currentActorName,
-                        stageTitle: stageTitle,
-                        comment
-                    };
-                    return {
-                        ...p,
-                        approvalStatus: status,
-                        approvalComment: comment,
-                        approvalHistory: [...(p.approvalHistory || []), newHistory]
-                    };
-                }
-                return p;
-            }));
-            setInfoModal({ title: t('updateStatus'), message: t('projectApprovalReviewed') });
-        } else if (type === 'progress') {
-            const update = progressUpdates.find(up => up.id === id);
-            if (!update) return;
-
-            // Reports on activities and requests on agile tasks are decided in the backend's approval workflow; the stages, the next approver and
-            // the checks on who may decide are its own. A rejection that still carries a confirmed figure is applied by the backend as well.
-            if (update.activityId || update.taskId) {
-                const partial = status === 'Rejected' && !!options?.isPartialRejection && options.approvedProgress !== undefined;
-                projectsState.decideUpdate(
-                    update.projectId!, update.id, status === 'Approved', comment,
-                    update.activityId && partial ? options!.approvedProgress : undefined,
-                    update.taskId && partial ? (options!.approvedProgress === 100 ? 'Done' : 'Doing') : undefined
-                ).then(outcome => setInfoModal(outcome.ok
-                    ? { title: t('updateStatus'), message: partial && update.activityId
-                        ? (language === 'fa'
-                            ? `پیشرفت اعلامی رد شد اما درصد پیشرفت تاییدی (${toPersianDigits(options!.approvedProgress!)}٪) ثبت گردید و ملاک تمام محاسبات قرار گرفت.`
-                            : `Submitted progress was rejected, but confirmed progress (${options!.approvedProgress}%) was saved and used for calculations.`)
-                        : t('reviewComplete') }
-                    : { title: t('error'), message: outcome.message || t('error') }));
-                setApprovalCommentModalState(null);
-                return;
-            }
-
-            // A request to change an action's status is decided in the backend's approval workflow, like the ones above.
-            if (update.actionId) {
-                actionsState.decide(update.id, status === 'Approved', comment).then(outcome => setInfoModal(outcome.ok
-                    ? { title: t('updateStatus'), message: t('reviewComplete') }
-                    : { title: t('error'), message: outcome.message || t('error') }));
-                setApprovalCommentModalState(null);
-                return;
-            }
-
-            const isCharter = !!update.submittedCharter;
-            const stages = isCharter
-                ? (dynamicWorkflowSettings?.charter || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.charter)
-                : (dynamicWorkflowSettings?.activity_progress || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.activity_progress);
-
-            const currentStageIdx = update.currentStageIndex ?? 0;
-            const currentStage = stages ? stages[currentStageIdx] : undefined;
-            const stageTitle = currentStage ? currentStage.stageTitle : (language === 'fa' ? `مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Stage ${currentStageIdx + 1}`);
-
-            const initialSubmitter = users.find(u => String(u.id) === String(update.submittedBy));
-            const initialSubmitterName = initialSubmitter ? (initialSubmitter.name ? `${initialSubmitter.name} (${initialSubmitter.username})` : initialSubmitter.username) : 'کاربر';
-
-            const baseHistory = update.approvalHistory && update.approvalHistory.length > 0
-                ? update.approvalHistory
-                : [{
-                    action: 'Submitted' as const,
-                    date: update.submissionDate || getISODateTimeString(),
-                    actor: initialSubmitterName,
-                    stageTitle: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission',
-                    comment: update.submissionComment || ''
-                }];
-
-            const currentRecord: ProjectApprovalRecord = {
-                action: status,
-                date: getISODateTimeString(),
-                actor: currentActorName,
-                stageTitle: stageTitle,
-                comment: comment || (status === 'Approved' ? (language === 'fa' ? 'تایید شد' : 'Approved') : (language === 'fa' ? 'عدم تایید' : 'Rejected'))
-            };
-
-            const newApprovalHistory = [...baseHistory, currentRecord];
-    
-            if (status === 'Rejected') {
-                const isPartial = !!(options?.isPartialRejection && options?.approvedProgress !== undefined);
-                const approvedVal = isPartial ? options!.approvedProgress : undefined;
-
-                setProgressUpdates(prev => prev.map(up => 
-                    up.id === id ? { 
-                        ...up, 
-                        status: 'Rejected', 
-                        isPartialRejection: isPartial,
-                        approvedProgress: approvedVal,
-                        reviewComment: comment, 
-                        reviewDate: getISODateTimeString(),
-                        approvalHistory: newApprovalHistory
-                    } : up
-                ));
-
-                // If partial rejection with confirmed progress, update task actualProgress so it becomes basis for calculations
-                if (isPartial && options?.approvedProgress !== undefined) {
-                    if (update.activityId) {
-                        setProjects(prev => prev.map(p => {
-                            if (p.id === update.projectId) {
-                                return {
-                                    ...p,
-                                    schedule: p.schedule?.map(act => act.id === update.activityId ? { ...act, actualProgress: options.approvedProgress! } : act)
-                                };
-                            }
-                            return p;
-                        }));
-                    } else if (update.taskId) {
-                        setProjects(prev => prev.map(p => {
-                            if (p.id === update.projectId) {
-                                return {
-                                    ...p,
-                                    kanbanTasks: p.kanbanTasks?.map(t => t.id === update.taskId ? { ...t, status: options.approvedProgress === 100 ? 'Done' : 'Doing' } : t)
-                                };
-                            }
-                            return p;
-                        }));
-                    }
-                    setInfoModal({ 
-                        title: t('updateStatus'), 
-                        message: language === 'fa' 
-                            ? `پیشرفت اعلامی رد شد اما درصد پیشرفت تاییدی (${toPersianDigits(options.approvedProgress)}٪) ثبت گردید و ملاک تمام محاسبات قرار گرفت.` 
-                            : `Submitted progress was rejected, but confirmed progress (${options.approvedProgress}%) was saved and used for calculations.`
-                    });
-                } else {
-                    setInfoModal({ title: t('updateStatus'), message: t('reviewComplete') });
-                }
-            } else if (status === 'Approved') {
-                const project = projects.find(p => p.id === update.projectId);
-                const hasNextStage = !!(stages && currentStageIdx < stages.length - 1);
-
-                if (hasNextStage && stages) {
-                    const nextStageIdx = currentStageIdx + 1;
-                    const nextStage = stages[nextStageIdx];
-                    const nextApproverId = nextStage ? resolveWorkflowApproverId(nextStage.approverId, project) : (project?.projectManagerId ?? 1);
-
-                    setProgressUpdates(prev => prev.map(up =>
-                        up.id === id ? { 
-                            ...up, 
-                            currentStageIndex: nextStageIdx,
-                            currentApproverId: nextApproverId, 
-                            approvedProgress: update.submittedProgress, 
-                            reviewComment: comment, 
-                            reviewDate: getISODateTimeString(),
-                            approvalHistory: newApprovalHistory
-                        } : up
-                    ));
-                    setInfoModal({ 
-                        title: t('updateStatus'), 
-                        message: language === 'fa' 
-                            ? `مرحله تایید فعلی با موفقیت ثبت شد و برای مرحله بعدی (${nextStage.stageTitle}) ارسال گردید.`
-                            : `Current stage approved and routed to next stage: ${nextStage.stageTitle}` 
-                    });
-                    setApprovalCommentModalState(null);
-                    return;
-                }
-
-                // Final Approval reached!
-                if (update.submittedCharter) {
-                    setProgressUpdates(prev => prev.map(up => 
-                        up.id === id ? {
-                            ...up,
-                            status: 'Approved',
-                            approvedProgress: 100,
-                            reviewComment: comment,
-                            reviewDate: getISODateTimeString(),
-                            approvalHistory: newApprovalHistory
-                        } : up
-                    ));
-                    setProjects(prev => prev.map(p => {
-                        if (p.id === update.projectId) {
-                            return {
-                                ...p,
-                                ...update.submittedCharter
-                            };
-                        }
-                        return p;
-                    }));
-                    setInfoModal({ title: t('updateStatus'), message: t('reviewComplete') });
-                    setApprovalCommentModalState(null);
-                    return;
-                }
-
-                // Regular progress final approval
-                setProgressUpdates(prev => prev.map(up =>
-                    up.id === id ? {
-                        ...up,
-                        status: 'Approved',
-                        approvedProgress: update.submittedProgress,
-                        reviewComment: comment,
-                        reviewDate: getISODateTimeString(),
-                        approvalHistory: newApprovalHistory
-                    } : up
-                ));
-
-                if (update.activityId) {
-                     setProjects(prev => prev.map(p => {
-                        if (p.id === update.projectId) {
-                            return {
-                                ...p,
-                                schedule: p.schedule?.map(act => act.id === update.activityId ? { ...act, actualProgress: update.submittedProgress! } : act)
-                            };
-                        }
-                        return p;
-                    }));
-                } else if (update.taskId) {
-                    setProjects(prev => prev.map(p => {
-                        if (p.id === update.projectId) {
-                            return {
-                                ...p,
-                                kanbanTasks: p.kanbanTasks?.map(t => t.id === update.taskId ? { ...t, status: update.submittedStatus as KanbanStatus } : t)
-                            };
-                        }
-                        return p;
-                    }));
-                }
-                setInfoModal({ title: t('updateStatus'), message: t('reviewComplete') });
-            }
-        }
         setApprovalCommentModalState(null);
-    };
+
+        if (type === 'project') {
+            projectsState.decide('project', id, id, status === 'Approved', comment).then(outcome => setInfoModal(outcome.ok
+                ? { title: t('updateStatus'), message: t('projectApprovalReviewed') }
+                : { title: t('error'), message: outcome.message || t('error') }));
+            return;
+        }
+
+        const update = progressUpdates.find(up => up.id === id);
+        if (!update) return;
+
+        // Reports on activities and requests on agile tasks; a rejection that still carries a confirmed figure is applied by the backend as well.
+        if (update.activityId || update.taskId) {
+            const partial = status === 'Rejected' && !!options?.isPartialRejection && options.approvedProgress !== undefined;
+            projectsState.decideUpdate(
+                update.projectId!, update.id, status === 'Approved', comment,
+                update.activityId && partial ? options!.approvedProgress : undefined,
+                update.taskId && partial ? (options!.approvedProgress === 100 ? 'Done' : 'Doing') : undefined
+            ).then(outcome => setInfoModal(outcome.ok
+                ? { title: t('updateStatus'), message: partial && update.activityId
+                    ? (language === 'fa'
+                        ? `پیشرفت اعلامی رد شد اما درصد پیشرفت تاییدی (${toPersianDigits(options!.approvedProgress!)}٪) ثبت گردید و ملاک تمام محاسبات قرار گرفت.`
+                        : `Submitted progress was rejected, but confirmed progress (${options!.approvedProgress}%) was saved and used for calculations.`)
+                    : t('reviewComplete') }
+                : { title: t('error'), message: outcome.message || t('error') }));
+            return;
+        }
+
+        // A request to change an action's status.
+        if (update.actionId) {
+            actionsState.decide(update.id, status === 'Approved', comment).then(outcome => setInfoModal(outcome.ok
+                ? { title: t('updateStatus'), message: t('reviewComplete') }
+                : { title: t('error'), message: outcome.message || t('error') }));
+        }
+    };;
 
     // --- CALENDAR & ADVANCED HANDLERS ---
     const handleSaveCalendar = (calendar: Calendar) => directory.saveCalendar(calendar);
@@ -900,67 +545,32 @@ const AppContent = () => {
         if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
     };
 
-    const handleDelegateTask = (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: string | undefined, delegateeId: string) => {
-        // 1. Reassign the task
-        if (type === 'action') {
-            void reassignAction(itemId as string, delegateeId);
-        } else {
-            void reassignItem(type, itemId as string, projectId, delegateeId);
+    /** The assignee of an item belongs to its own area, so the screen that shows it sets it; the backend keeps the record of the hand-over. */
+    const assignTo = async (type: 'waterfall' | 'agile' | 'action', itemId: string, projectId: string | undefined, userId: string) => {
+        if (type === 'action') await reassignAction(itemId, userId);
+        else await reassignItem(type, itemId, projectId, userId);
+    };
+
+    const handleDelegateTask = async (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: string | undefined, delegateeId: string) => {
+        const made = await governance.delegate(type, String(itemId), projectId, delegateeId);
+        if (!made.ok) {
+            setInfoModal({ title: t('error'), message: made.message || t('error') });
+            return;
         }
-    
-        // 2. Create a new delegation record
-        setDelegations(prev => {
-            const newDelegation: Delegation = {
-                id: Date.now(),
-                type,
-                itemId,
-                projectId,
-                delegatorId: currentUser!.id,
-                delegateeId,
-                delegationDate: getISODateString(),
-                isActive: true,
-            };
-            return [...prev, newDelegation];
-        });
+        await assignTo(type, String(itemId), projectId, delegateeId);
         setInfoModal({ title: t('delegate'), message: t('taskDelegatedSuccess') });
     };
 
-    const handleDeactivateDelegation = (delegationId: number) => {
-        const delegationToDeactivate = delegations.find(d => d.id === delegationId);
-        if (!delegationToDeactivate) return;
-    
-        const { type, itemId, projectId, delegatorId, delegateeId } = delegationToDeactivate;
-    
-        // 1. Reassign task back to the delegator of this specific link
-        if (type === 'action') {
-            void reassignAction(itemId as string, delegatorId);
-        } else {
-            void reassignItem(type, itemId as string, projectId, delegatorId);
+    const handleDeactivateDelegation = async (delegationId: string) => {
+        const delegation = delegations.find(d => d.id === delegationId);
+        if (!delegation) return;
+        // The backend ends this hand-over and everything handed on after it, and says who the item goes back to.
+        const ended = await governance.endDelegation(delegationId);
+        if (!ended.ok) {
+            setInfoModal({ title: t('error'), message: ended.message || t('error') });
+            return;
         }
-    
-        // 2. Deactivate the entire subsequent chain of delegations
-        setDelegations(prev => {
-            const activeDelegationsForTask = prev.filter(d => 
-                d.projectId === projectId && 
-                d.itemId === itemId && 
-                d.isActive
-            );
-            
-            const idsToDeactivate = new Set<number>([delegationId]);
-            const queue: number[] = [delegateeId]; // Start with the person this task was delegated to
-    
-            while (queue.length > 0) {
-                const currentDelegatorId = queue.shift();
-                const nextDelegation = activeDelegationsForTask.find(d => d.delegatorId === currentDelegatorId);
-                if (nextDelegation) {
-                    idsToDeactivate.add(nextDelegation.id);
-                    queue.push(nextDelegation.delegateeId);
-                }
-            }
-            
-            return prev.map(d => idsToDeactivate.has(d.id) ? { ...d, isActive: false } : d);
-        });
-    
+        if (ended.restoreToUserId) await assignTo(delegation.type, delegation.itemId, delegation.projectId, ended.restoreToUserId);
         setInfoModal({ title: t('deactivate'), message: t('delegationDeactivatedSuccess') });
     };
 
@@ -989,16 +599,6 @@ const AppContent = () => {
                         onNavigate={handleNavigate} 
                         currentUser={currentUser} 
                         users={users}
-                        isProjectWorkflowEnabled={isProjectWorkflowEnabled}
-                        setIsProjectWorkflowEnabled={setIsProjectWorkflowEnabled}
-                        allowApprovedProgress={allowApprovedProgress}
-                        setAllowApprovedProgress={setAllowApprovedProgress}
-                        defaultProjectApproverId={defaultProjectApproverId}
-                        setDefaultProjectApproverId={setDefaultProjectApproverId}
-                        visibilitySettings={visibilitySettings}
-                        setVisibilitySettings={setVisibilitySettings}
-                        dynamicWorkflowSettings={dynamicWorkflowSettings}
-                        setDynamicWorkflowSettings={setDynamicWorkflowSettings}
                     />
                 );
             case 'create_project':
@@ -1024,9 +624,6 @@ const AppContent = () => {
                             actions={actions}
                             owningUnits={owningUnits}
                             projectStatuses={projectStatuses}
-                            isProjectWorkflowEnabled={isProjectWorkflowEnabled}
-                            defaultProjectApproverId={defaultProjectApproverId}
-                            dynamicWorkflowSettings={dynamicWorkflowSettings}
                             onSaveAction={handleSaveAction}
                             projects={projects}
                         />;
@@ -1039,7 +636,6 @@ const AppContent = () => {
                             onNavigate={handleNavigate} 
                             progressUpdates={progressUpdates}
                             owningUnits={owningUnits}
-                            visibilitySettings={visibilitySettings}
                             onDeleteProject={handleDeleteProject}
                             onDeleteAction={handleDeleteAction}
                         />;
@@ -1062,7 +658,6 @@ const AppContent = () => {
                             delegations={delegations}
                             onDelegateTask={handleDelegateTask}
                             onDeactivateDelegation={handleDeactivateDelegation}
-                            dynamicWorkflowSettings={dynamicWorkflowSettings}
                         />;
             case 'approval_center':
                 return <ApprovalCenterPage 
@@ -1075,7 +670,6 @@ const AppContent = () => {
                             onNavigate={handleNavigate}
                             allProcessedActivities={allProcessedActivities}
                             setProjects={setProjects}
-                            dynamicWorkflowSettings={dynamicWorkflowSettings}
                         />;
             case 'calendar_management':
                 return <CalendarManagementPage calendars={calendars} onNavigate={handleNavigate} onDelete={handleDeleteCalendar} />;
@@ -1178,11 +772,13 @@ export const App = () => {
                 <AuthProvider>
                     <DirectoryProvider>
                         <ProjectsProvider>
-                            <ActionsProvider>
-                                <StrategyProvider>
-                                    <AppContent />
-                                </StrategyProvider>
-                            </ActionsProvider>
+                            <GovernanceProvider>
+                                <ActionsProvider>
+                                    <StrategyProvider>
+                                        <AppContent />
+                                    </StrategyProvider>
+                                </ActionsProvider>
+                            </GovernanceProvider>
                         </ProjectsProvider>
                     </DirectoryProvider>
                 </AuthProvider>

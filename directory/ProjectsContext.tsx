@@ -5,16 +5,17 @@ import type {
 import { useAuth } from './AuthContext';
 import { useDirectory } from './DirectoryContext';
 import type { Outcome } from './DirectoryContext';
-import { projects as projectsApi, projectTeam } from '../services/backend/projects';
+import { BackendApprovalStatus, projects as projectsApi, projectTeam } from '../services/backend/projects';
 import type { BackendProjectMember } from '../services/backend/projects';
 import { backendStatusOf, backendTypeOf, PROJECT_CORE_KEYS, toProjectBody, toUiProject } from '../services/backend/mappers';
 import {
   approvals, delayReasons as delayReasonsApi, documents as documentsApi, riskResponses as riskResponsesApi, risks as risksApi,
   stakeholders as stakeholdersApi, statusUpdates as statusUpdatesApi
 } from '../services/backend/registers';
-import type { RegisterKind } from '../services/backend/registers';
+import { SubjectType } from '../services/backend/registers';
+import type { BackendInstance, RegisterKind } from '../services/backend/registers';
 import {
-  backendDocumentTypeOf, backendResponseStatusOf, buildPeople, OTHER_ROOT_CAUSE, toRiskBody, toRiskColorsBody, toRiskDefinitionsBody,
+  approvalOf, backendDocumentTypeOf, backendResponseStatusOf, buildPeople, OTHER_ROOT_CAUSE, toRiskBody, toRiskColorsBody, toRiskDefinitionsBody,
   toStakeholderBody
 } from '../services/backend/registerMappers';
 import { loadRegisters } from '../services/backend/registerLoad';
@@ -218,19 +219,44 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
       membersByProject.set(member.projectId, [...(membersByProject.get(member.projectId) ?? []), member.userId]);
     }
 
+    // Each project that was sent for approval: the Workflow instance that decides it, with its history and who decides next.
+    const projectFlow = new Map<string, BackendInstance>();
+    const sentProjects = list.filter(p => p.approvalStatus !== BackendApprovalStatus.NotSubmitted).map(p => p.id);
+    if (sentProjects.length) {
+      const found = await approvals.forSubjects(SubjectType.project, sentProjects);
+      // The newest comes first: that one is the project's current approval.
+      for (const instance of found.value ?? []) if (!projectFlow.has(instance.subjectId)) projectFlow.set(instance.subjectId, instance);
+    }
+
     const registers = await loadRegisters(list.map(p => p.id), people);
     const planning = await loadPlanning(list.map(p => ({ id: p.id, type: p.type === 1 ? 'agile' as const : 'waterfall' as const })), people);
     const contracts = await loadContracts(list.map(p => p.id), people);
-    instanceByItem.current = new Map([...registers.instanceByItem, ...planning.instanceByItem, ...contracts.instanceByItem]);
+    instanceByItem.current = new Map([
+      ...registers.instanceByItem, ...planning.instanceByItem, ...contracts.instanceByItem,
+      ...[...projectFlow.values()].map(i => [i.subjectId, i.id] as const)
+    ]);
     setProgressUpdates(planning.progressUpdates);
     if (registers.error) setError(registers.error);
     else if (planning.error) setError(planning.error);
     else if (contracts.error) setError(contracts.error);
 
     const extras = readExtras();
-    const mapped = list.map(p => toUiProject(
-      p, directory.unitPathById, membersByProject.get(p.id) ?? [], extras[p.id],
-      withLocalOnly(registers.byProject.get(p.id) as ProjectRegisters), planning.byProject.get(p.id), contracts.byProject.get(p.id)));
+    const mapped = list.map(p => {
+      const project = toUiProject(
+        p, directory.unitPathById, membersByProject.get(p.id) ?? [], extras[p.id],
+        withLocalOnly(registers.byProject.get(p.id) as ProjectRegisters), planning.byProject.get(p.id), contracts.byProject.get(p.id));
+      const flow = projectFlow.get(p.id);
+      if (!flow) return project;
+      const approval = approvalOf(p.approvalStatus, flow, people);
+      const lastDecision = [...flow.decisions].sort((a, b) => a.decidedAtUtc.localeCompare(b.decidedAtUtc)).pop();
+      return {
+        ...project,
+        approvalHistory: approval.approvalHistory,
+        currentApprovalStageIndex: approval.currentStageIndex,
+        currentApproverId: approval.currentApproverId,
+        approvalComment: lastDecision?.comment ?? undefined
+      };
+    });
     setProjects(mapped);
     loaded.current = true;
     setLoading(false);
@@ -426,6 +452,12 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
         }
         if (!instanceId) return fail('این مورد در گردش کار تأیید قرار ندارد.', 'not_found');
         const decided = approve ? await approvals.approve(instanceId, comment ?? null) : await approvals.reject(instanceId, comment ?? null);
+        // A project's own approval changes the project itself (its approval status), not only a register: read everything back.
+        if (kind === 'project') {
+          if (!decided.ok) return fail(decided.error?.message, decided.error?.code);
+          await load();
+          return { ok: true };
+        }
         return settle(projectId, decided);
       }
     };

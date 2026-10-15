@@ -1,9 +1,9 @@
 
 
 export interface Delegation {
-  id: number;
+  id: string;
   type: 'waterfall' | 'agile' | 'action';
-  itemId: string | number; // activityId, taskId, or actionId
+  itemId: string; // activityId, taskId, or actionId
   projectId?: string;
   delegatorId: string;
   delegateeId: string;
@@ -54,17 +54,6 @@ export interface VisibilitySettings {
   viewByApprovers: boolean;            // مشاهده پروژه / اقدام توسط هریک از تاییدکنندگان
   viewByResources: boolean;            // مشاهده پروژه توسط هریک از منابع
   viewByOrgHeads: boolean;             // مشاهده پروژه / اقدام توسط روسای سازمانی
-  // دسترسی‌های سطح اپ برای قراردادها و صورتحساب‌ها:
-  viewContractsAdmin?: boolean;
-  viewContractsPM?: boolean;
-  viewContractsTeam?: boolean;
-  manageContractsAdmin?: boolean;
-  manageContractsPM?: boolean;
-  viewInvoicesAdmin?: boolean;
-  viewInvoicesPM?: boolean;
-  viewInvoicesTeam?: boolean;
-  manageInvoicesAdmin?: boolean;
-  manageInvoicesPM?: boolean;
 }
 
 /** The approval state of a record, as the backend's workflow reports it (nothing about stages or approvers is decided here). */
@@ -405,6 +394,8 @@ export interface Project {
   submissionDate?: string; // YYYY-MM-DD
   approvalHistory?: ProjectApprovalRecord[];
   currentApprovalStageIndex?: number;
+  /** Who must decide the project's approval next (the backend's workflow says). */
+  currentApproverId?: string;
   // Charter
   name: string;
   code?: string;
@@ -446,7 +437,6 @@ export interface Project {
   riskDefinitions?: RiskProbabilityImpactDefinitions;
   riskMatrixColors?: Record<string, 'red' | 'yellow' | 'green'>;
   stakeholderStrategies?: StakeholderStrategies;
-  approver1Id?: string | null;
   contracts?: ProjectContract[];
   invoices?: ProjectInvoice[];
   /** All of the project's contracts added up, by the backend. */
@@ -583,98 +573,6 @@ export interface WorkflowStage {
 }
 
 export type DynamicWorkflowSettings = Record<WorkflowEntityType, WorkflowStage[]>;
-
-export const DEFAULT_DYNAMIC_WORKFLOW_SETTINGS: DynamicWorkflowSettings = {
-  charter: [
-    { id: 'charter_1', stageNumber: 1, stageTitle: 'تایید نهایی', approverId: 'ROLE_PM' }
-  ],
-  activity_progress: [
-    { id: 'activity_progress_1', stageNumber: 1, stageTitle: 'تایید نهایی', approverId: 'ROLE_PM' }
-  ],
-  risks: [
-    { id: 'risks_1', stageNumber: 1, stageTitle: 'تایید نهایی', approverId: 'ROLE_PM' }
-  ],
-  stakeholders: [
-    { id: 'stakeholders_1', stageNumber: 1, stageTitle: 'تایید نهایی', approverId: 'ROLE_PM' }
-  ],
-  status_updates: [
-    { id: 'status_updates_1', stageNumber: 1, stageTitle: 'تایید نهایی', approverId: 'ROLE_PM' }
-  ],
-  delay_reasons: [
-    { id: 'delay_reasons_1', stageNumber: 1, stageTitle: 'تایید نهایی', approverId: 'ROLE_PM' }
-  ],
-  documents: [
-    { id: 'documents_1', stageNumber: 1, stageTitle: 'تایید اولیه', approverId: 'ROLE_PM' },
-    { id: 'documents_2', stageNumber: 2, stageTitle: 'تایید نهایی', approverId: 'ROLE_OWNER' }
-  ],
-  contracts: [
-    { id: 'contracts_1', stageNumber: 1, stageTitle: 'تایید نهایی', approverId: 'ROLE_PM' }
-  ],
-  invoices: [
-    { id: 'invoices_1', stageNumber: 1, stageTitle: 'تایید نهایی', approverId: 'ROLE_PM' }
-  ]
-};
-
-export const resolveWorkflowApproverId = (
-  approverId: 'ROLE_PM' | 'ROLE_OWNER' | string,
-  project?: Project | null,
-  action?: ActionItem | null,
-  fallbackAdminId: string = '1'
-): string => {
-  if (approverId === 'ROLE_PM') {
-    if (project?.projectManagerId) return project.projectManagerId;
-    if (action?.responsibleUserId) return action.responsibleUserId;
-    return fallbackAdminId;
-  }
-  if (approverId === 'ROLE_OWNER') {
-    if (project?.ownerId) return project.ownerId;
-    if (action?.ownerUserId) return action.ownerUserId;
-    if (project?.projectManagerId) return project.projectManagerId;
-    return fallbackAdminId;
-  }
-  return approverId || fallbackAdminId;
-};
-
-export const getEffectiveProjectWorkflowStages = (
-  entityType: WorkflowEntityType,
-  project?: Project | null,
-  globalSettings?: DynamicWorkflowSettings
-): WorkflowStage[] => {
-  if (!project) {
-    return globalSettings?.[entityType] || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS[entityType];
-  }
-
-  // Map entityType to tabKey in project.tabWorkflows
-  const entityToTabMap: Record<WorkflowEntityType, string> = {
-    charter: 'charter',
-    activity_progress: 'schedule',
-    risks: 'risks',
-    stakeholders: 'stakeholders',
-    status_updates: 'status',
-    delay_reasons: 'delays',
-    documents: 'docs',
-    contracts: 'contracts',
-    invoices: 'invoices'
-  };
-
-  const tabKey = entityToTabMap[entityType] || entityType;
-  // If tabWorkflows[tabKey] is false, it means unique/custom workflow for this project is active
-  const isGlobalStandardWorkflow = project.tabWorkflows ? project.tabWorkflows[tabKey] !== false : true;
-
-  if (!isGlobalStandardWorkflow && project.customWorkflowSettings?.[entityType] && project.customWorkflowSettings[entityType].length > 0) {
-    return project.customWorkflowSettings[entityType];
-  }
-
-  return globalSettings?.[entityType] || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS[entityType];
-};
-
-export const isProjectTabCustomWorkflow = (
-  tabKeyOrEntity: string,
-  project?: Project | null
-): boolean => {
-  if (!project || !project.tabWorkflows) return false;
-  return project.tabWorkflows[tabKeyOrEntity] === false;
-};
 
 export interface EnrichedTask extends ProjectActivity {
     projectName: string;

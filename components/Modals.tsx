@@ -3762,7 +3762,7 @@ export const MyDelegationsModal = ({ isOpen, onClose, delegations, projects, act
     projects: Project[];
     actions: ActionItem[];
     users: User[];
-    onDeactivate: (delegationId: number) => void;
+    onDeactivate: (delegationId: string) => void;
 }): ReactElement | null => {
     const { t, language } = useContext(LocalizationContext);
 

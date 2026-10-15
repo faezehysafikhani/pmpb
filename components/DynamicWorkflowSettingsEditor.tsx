@@ -1,5 +1,5 @@
 import React, { useState, useContext } from 'react';
-import { User, WorkflowEntityType, WorkflowStage, DynamicWorkflowSettings, DEFAULT_DYNAMIC_WORKFLOW_SETTINGS } from '../types';
+import { User, WorkflowEntityType, WorkflowStage, DynamicWorkflowSettings } from '../types';
 import { toPersianDigits } from '../utils';
 import { ThemeContext } from '../context';
 
@@ -144,7 +144,7 @@ export const DynamicWorkflowSettingsEditor: React.FC<DynamicWorkflowSettingsEdit
     }
   ];
 
-  const currentStages = settings[activeEntityType] || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS[activeEntityType] || [];
+  const currentStages = settings[activeEntityType] || [];
   const activeDef = entityDefinitions.find(e => e.id === activeEntityType) || entityDefinitions[0];
 
   // Project-specific workflow state for active entity
@@ -245,7 +245,7 @@ export const DynamicWorkflowSettingsEditor: React.FC<DynamicWorkflowSettingsEdit
         }}>
           {entityDefinitions.map((entity) => {
             const isActive = entity.id === activeEntityType;
-            const stageCount = (settings[entity.id] || []).length || (DEFAULT_DYNAMIC_WORKFLOW_SETTINGS[entity.id] || []).length;
+            const stageCount = (settings[entity.id] || []).length;
             const isEntityCustom = projectContext?.tabWorkflows ? projectContext.tabWorkflows[entity.tabKey] === false : false;
 
             return (

@@ -3,9 +3,10 @@ import { LocalizationContext } from '../context';
 import { 
     User, Project, ProjectActivity, KanbanTask, ProgressUpdate, EnrichedTask, KanbanStatus,
     UserRole, TranslationKey, ProgressUpdateStatus, TaskPriority, EnrichedKanbanTask,
-    ActionItem, WorkStatus, Delegation, DynamicWorkflowSettings, DEFAULT_DYNAMIC_WORKFLOW_SETTINGS, resolveWorkflowApproverId,
-    ProjectApprovalRecord, getEffectiveProjectWorkflowStages, WorkflowEntityType
+    ActionItem, WorkStatus, Delegation,
+    ProjectApprovalRecord, WorkflowEntityType
 } from '../types';
+import { useGovernance } from '../directory/GovernanceContext';
 import { 
     UserEditModal, TaskSubmissionModal, ActivityHistoryModal, KanbanStatusUpdateModal, KanbanHistoryModal, ProjectHistoryModal,
     ActionStatusUpdateModal, ActionHistoryModal, ApprovalHistoryModal, DelegationModal, MyDelegationsModal, AiFeasibilityModal,
@@ -260,7 +261,7 @@ export const UserManagementPage = ({ users, onNavigate, owningUnits = [], onCrea
 };
 
 // --- TaskCenterPage ---
-export const TaskCenterPage = ({ projects, actions, users, currentUser, progressUpdates, onAddProgressUpdate, onAddKanbanStatusUpdate, onAddActionStatusUpdate, onUpdateRiskResponseStatus, onNavigate, allProcessedActivities, delegations, onDelegateTask, onDeactivateDelegation, dynamicWorkflowSettings = DEFAULT_DYNAMIC_WORKFLOW_SETTINGS }: { 
+export const TaskCenterPage = ({ projects, actions, users, currentUser, progressUpdates, onAddProgressUpdate, onAddKanbanStatusUpdate, onAddActionStatusUpdate, onUpdateRiskResponseStatus, onNavigate, allProcessedActivities, delegations, onDelegateTask, onDeactivateDelegation }: { 
     projects: Project[], 
     actions: ActionItem[],
     users: User[], 
@@ -275,8 +276,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
     allProcessedActivities: Map<string, ProjectActivity>,
     delegations: Delegation[],
     onDelegateTask: (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: string | undefined, delegateeId: string) => void,
-    onDeactivateDelegation: (delegationId: number) => void,
-    dynamicWorkflowSettings?: DynamicWorkflowSettings
+    onDeactivateDelegation: (delegationId: string) => void
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     
@@ -497,10 +497,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
 
         // Risk Response Actions (برنامه پاسخ ریسک)
         myRiskResponseActions.forEach(({ risk: r, project: p, isPending }) => {
-            const stages = getEffectiveProjectWorkflowStages('risks', p, dynamicWorkflowSettings);
-            const currentStageIdx = r.verificationStageIndex ?? 0;
-            const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-            const effectiveApproverId = r.verificationApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
+            const effectiveApproverId = r.verificationApproverId ?? p.projectManagerId;
             const approver = users.find(u => String(u.id) === String(effectiveApproverId));
 
             list.push({
@@ -511,7 +508,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
                 projectId: p.id,
                 startDate: p.startDate,
                 endDate: p.endDate,
-                approverName: approver ? (approver.name ? `${approver.name} (${approver.username})` : approver.username) : (stage?.stageTitle || 'N/A'),
+                approverName: approver ? (approver.name ? `${approver.name} (${approver.username})` : approver.username) : 'N/A',
                 status: isPending ? 'Pending Approval' : (r.responseStatus || 'Planning'),
                 priority: r.impact === 'High' ? 'High' : (r.impact === 'Low' ? 'Low' : 'Medium'),
                 rawItem: { ...r, isRiskResponse: true, projectId: p.id, riskId: r.id, isPending, title: `${language === 'fa' ? 'پاسخ ریسک: ' : 'Risk Response: '}${r.responsePlan}`, status: r.responseStatus || 'Planning' }
@@ -519,7 +516,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
         });
 
         return list;
-    }, [myWaterfallTasks, myAgileTasks, myActions, myRiskResponseActions, projects, users, language, dynamicWorkflowSettings]);
+    }, [myWaterfallTasks, myAgileTasks, myActions, myRiskResponseActions, projects, users, language]);
 
     const availableProjects = useMemo(() => {
         const set = new Set<string>();
@@ -1179,7 +1176,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
 };
 
 // --- ApprovalCenterPage ---
-export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, currentUser, setApprovalCommentModalState, onNavigate, allProcessedActivities, setProjects, dynamicWorkflowSettings }: { 
+export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, currentUser, setApprovalCommentModalState, onNavigate, allProcessedActivities, setProjects }: { 
     progressUpdates: ProgressUpdate[],
     projects: Project[],
     actions: ActionItem[],
@@ -1188,11 +1185,13 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
     setApprovalCommentModalState: (review: any) => void,
     onNavigate: (page: string, context?: any) => void,
     allProcessedActivities: Map<string, ProjectActivity>,
-    setProjects: React.Dispatch<React.SetStateAction<Project[]>>,
-    dynamicWorkflowSettings?: DynamicWorkflowSettings
+    setProjects: React.Dispatch<React.SetStateAction<Project[]>>
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const backIcon = language === 'fa' ? 'arrow_forward' : 'arrow_back';
+    // Whose turn it is comes from the backend's workflow (a substitute's included); an administrator also sees every pending item.
+    const governance = useGovernance();
+    const mine = (subjectId?: string) => !!subjectId && (currentUser.role === 'Admin' || governance.waitingForMe(subjectId));
     const [historyModalInfo, setHistoryModalInfo] = useState<{ type: 'activity' | 'project' | 'kanban' | 'action', id: number | string, projectId?: string, project?: Project, taskId?: number, actionId?: number } | null>(null);
     const [isApprovalHistoryModalOpen, setIsApprovalHistoryModalOpen] = useState(false);
     const [feasibilityProject, setFeasibilityProject] = useState<Project | null>(null);
@@ -1247,12 +1246,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
             // Risks
             (p.risks || []).forEach(r => {
                 if (!r.isApproved && !r.isRejected) {
-                    const stages = getEffectiveProjectWorkflowStages('risks', p, dynamicWorkflowSettings);
-                    const currentStageIdx = r.currentStageIndex ?? 0;
-                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                    const targetApproverId = r.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-
-                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
+                    if (mine(r.id)) {
                         const submitter = users.find(u => u.id === r.submittedBy);
                         list.push({
                             projectId: p.id,
@@ -1268,12 +1262,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
 
                 // Risk verification workflow (صحه گذاری اقدام پاسخ ریسک)
                 if (r.isApproved && r.verificationStatus === 'Pending Approval') {
-                    const stages = getEffectiveProjectWorkflowStages('risks', p, dynamicWorkflowSettings);
-                    const currentStageIdx = r.verificationStageIndex ?? 0;
-                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                    const targetApproverId = r.verificationApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-
-                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
+                    if (mine(r.verificationReportId)) {
                         const submitter = users.find(u => u.username === r.assignedTo || u.name === r.assignedTo || String(u.id) === String(r.assignedTo));
                         list.push({
                             projectId: p.id,
@@ -1291,12 +1280,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
             // Stakeholders
             (p.stakeholders || []).forEach(sh => {
                 if (!sh.isApproved && !sh.isRejected) {
-                    const stages = getEffectiveProjectWorkflowStages('stakeholders', p, dynamicWorkflowSettings);
-                    const currentStageIdx = sh.currentStageIndex ?? 0;
-                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                    const targetApproverId = sh.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-
-                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
+                    if (mine(sh.id)) {
                         const submitter = users.find(u => u.id === sh.submittedBy);
                         list.push({
                             projectId: p.id,
@@ -1314,12 +1298,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
             // Status Updates
             (p.statusUpdates || []).forEach(s => {
                 if (!s.isApproved && !s.isRejected) {
-                    const stages = getEffectiveProjectWorkflowStages('status_updates', p, dynamicWorkflowSettings);
-                    const currentStageIdx = s.currentStageIndex ?? 0;
-                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                    const targetApproverId = s.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-
-                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
+                    if (mine(s.id)) {
                         const submitter = users.find(u => u.id === s.submittedBy);
                         list.push({
                             projectId: p.id,
@@ -1337,12 +1316,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
             // Delay Reasons
             (p.delayReasons || []).forEach(d => {
                 if (!d.isApproved && !d.isRejected) {
-                    const stages = getEffectiveProjectWorkflowStages('delay_reasons', p, dynamicWorkflowSettings);
-                    const currentStageIdx = d.currentStageIndex ?? 0;
-                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                    const targetApproverId = d.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-
-                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
+                    if (mine(d.id)) {
                         const submitter = users.find(u => u.id === d.submittedBy);
                         list.push({
                             projectId: p.id,
@@ -1360,12 +1334,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
             // Documents
             (p.documents || []).forEach(doc => {
                 if (!doc.isApproved && !doc.isRejected) {
-                    const stages = getEffectiveProjectWorkflowStages('documents', p, dynamicWorkflowSettings);
-                    const currentStageIdx = doc.currentStageIndex ?? 0;
-                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                    const targetApproverId = doc.currentApproverId ?? (stage ? resolveWorkflowApproverId(stage.approverId, p) : p.projectManagerId);
-
-                    if (String(targetApproverId) === String(currentUser.id) || currentUser.role === 'Admin') {
+                    if (mine(doc.id)) {
                         const submitter = users.find(u => u.id === doc.submittedBy);
                         list.push({
                             projectId: p.id,
@@ -1381,8 +1350,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
             });
 
             // Contracts, their addenda and invoices: the backend's workflow says which are waiting and for whom.
-            const waitingForMe = (item: { isPending?: boolean; currentApproverId?: string }) =>
-                !!item.isPending && (String(item.currentApproverId) === String(currentUser.id) || currentUser.role === 'Admin');
+            const waitingForMe = (item: { id: string; isPending?: boolean }) => !!item.isPending && mine(item.id);
             const submitterOf = (id?: string) => users.find(u => u.id === id)?.username || 'N/A';
             (p.contracts || []).forEach(c => {
                 if (waitingForMe(c)) {
@@ -1411,7 +1379,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
         });
 
         return list;
-    }, [projects, users, currentUser, language, dynamicWorkflowSettings]);
+    }, [projects, users, currentUser, language, governance]);
 
     // The approval of a register item is the backend's workflow: it records the decision, moves to the next step or finishes, and checks
     // that the signed-in user is the one who may decide - the verification of a risk's response report included.
@@ -1451,7 +1419,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
 
     const pendingActivityApprovals = useMemo(() => {
         return progressUpdates
-            .filter(up => up.status === 'Pending Approval' && up.activityId && String(up.currentApproverId) === String(currentUser.id))
+            .filter(up => up.status === 'Pending Approval' && up.activityId && mine(up.id))
             .map(up => {
                 const project = projects.find(p => p.id === up.projectId);
                 if (!project) {
@@ -1475,7 +1443,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
 
     const pendingKanbanApprovals = useMemo(() => {
         return progressUpdates
-            .filter(up => up.status === 'Pending Approval' && up.taskId && up.submittedStatus && String(up.currentApproverId) === String(currentUser.id))
+            .filter(up => up.status === 'Pending Approval' && up.taskId && up.submittedStatus && mine(up.id))
             .map(up => {
                 const project = projects.find(p => p.id === up.projectId);
                  if (!project) {
@@ -1498,12 +1466,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
     const pendingProjectApprovals = useMemo(() => {
         return projects
             .filter(p => p.approvalStatus === 'Pending Approval')
-            .filter(p => {
-                if (p.approver1Id) {
-                    return String(p.approver1Id) === String(currentUser.id);
-                }
-                return currentUser.role === 'Admin';
-            })
+            .filter(p => mine(p.id))
             .map(p => {
                 const submitter = users.find(u => u.id === p.projectManagerId || u.id === p.ownerId);
                 return {
@@ -1515,7 +1478,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
 
     const pendingActionStatusApprovals = useMemo(() => {
         return progressUpdates
-            .filter(up => up.status === 'Pending Approval' && up.actionId && String(up.currentApproverId) === String(currentUser.id))
+            .filter(up => up.status === 'Pending Approval' && up.actionId && mine(up.id))
             .map(up => {
                 const action = actions.find(a => a.id === up.actionId);
                 if (!action) {
@@ -1529,7 +1492,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
 
     const pendingCharterApprovals = useMemo(() => {
         return progressUpdates
-            .filter(up => up.status === 'Pending Approval' && up.submittedCharter && String(up.currentApproverId) === String(currentUser.id))
+            .filter(up => up.status === 'Pending Approval' && up.submittedCharter && mine(up.id))
             .map(up => {
                 const project = projects.find(p => p.id === up.projectId);
                 const submitter = users.find(u => u.id === up.submittedBy);

@@ -54,7 +54,7 @@ export function approvalOf(status: number, instance: BackendInstance | undefined
       date: d.decidedAtUtc,
       comment: d.comment ?? undefined,
       actor: people.labelOf(d.decidedByUserId),
-      stageTitle: `${d.stepOrder}`
+      stageTitle: instance?.steps?.find(s => s.order === d.stepOrder)?.name ?? `${d.stepOrder}`
     }));
   const inProgress = instance?.status === BackendInstanceStatus.InProgress;
   return {

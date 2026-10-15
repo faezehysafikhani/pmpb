@@ -3,8 +3,7 @@ import { LocalizationContext, ThemeContext } from '../context';
 import { 
     User, Project, ProjectRisk, ProjectStakeholder, getStakeholderStrategy, ProjectStatusUpdate, ProjectDelayReason, ProjectDocument, ProjectActivity, KanbanTask, 
     ProgressUpdate, TranslationKey, KanbanStatus, ActionItem, WorkStatus, PlannedProgressType, ScheduleSnapshot, TaskPriority,
-    DynamicWorkflowSettings, DEFAULT_DYNAMIC_WORKFLOW_SETTINGS, resolveWorkflowApproverId, WorkflowEntityType,
-    getEffectiveProjectWorkflowStages, isProjectTabCustomWorkflow,
+    DynamicWorkflowSettings, WorkflowEntityType,
     RiskProbabilityImpactDefinitions, RiskLevelThresholdDefinition, DEFAULT_RISK_DEFINITIONS,
     StakeholderStrategies, DEFAULT_STAKEHOLDER_STRATEGIES,
     Calendar, ProjectApprovalRecord, ProjectContractPermissions, ProjectInvoicePermissions,
@@ -19,7 +18,6 @@ import { AiStakeholderModal } from './AiStakeholderModal';
 import { MsProjectImportModal } from './MsProjectImportModal';
 import { MsProjectExportModal } from './MsProjectExportModal';
 import { useProjects } from '../directory/ProjectsContext';
-import { DynamicWorkflowSettingsEditor } from './DynamicWorkflowSettingsEditor';
 export { ProjectContractsTab, ProjectInvoicesTab, ContractModal, InvoiceModal } from './ProjectContractInvoicesTabs';
 export { ProjectSettingsTab } from './ProjectSettingsTab';
 
@@ -659,28 +657,10 @@ export const ProjectRisksTab = ({
     };
 
     const handleConvertToRiskAction = (risk: ProjectRisk) => {
-        const isRiskWorkflowEnabled = requiresWorkflow !== false;
-        const stages = getEffectiveProjectWorkflowStages('risks', project, dynamicWorkflowSettings);
-        const firstStage = stages?.[0];
-        const initialApproverId = firstStage && project ? resolveWorkflowApproverId(firstStage.approverId, project) : (project?.projectManagerId || undefined);
 
         const assignedUser = users?.find(u => u.username === risk.assignedTo || u.name === risk.assignedTo);
         const assignedUserId = assignedUser ? assignedUser.id : (currentUser?.id || project?.projectManagerId || null);
 
-        const submitterActor = currentUser ? (currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username) : 'کاربر';
-        const initialApprovalRecord: ProjectApprovalRecord = isRiskWorkflowEnabled ? {
-            action: 'Submitted',
-            date: new Date().toISOString(),
-            actor: submitterActor,
-            stageTitle: firstStage?.stageTitle || (isFa ? 'ثبت اقدام پاسخ ریسک' : 'Risk Response Action Submission'),
-            comment: isFa ? `ایجاد اقدام از برنامه پاسخ ریسک «${risk.description}»` : `Action created from risk response plan`
-        } : {
-            action: 'Approved',
-            date: new Date().toISOString(),
-            actor: 'System (No Workflow)',
-            stageTitle: isFa ? 'تایید خودکار' : 'Auto Approved',
-            comment: isFa ? 'بدون گردش کار تایید شد' : 'Approved without workflow'
-        };
 
         const actionData: Partial<ActionItem> = {
             title: risk.responsePlan || (isFa ? `برنامه پاسخ به ریسک: ${risk.description}` : `Risk Response: ${risk.description}`),
@@ -703,12 +683,7 @@ export const ProjectRisksTab = ({
                 riskTitle: risk.description,
                 riskPlan: risk.responsePlan
             },
-            workflowType: 'risks',
-            isApproved: !isRiskWorkflowEnabled,
-            isPending: isRiskWorkflowEnabled,
-            currentStageIndex: isRiskWorkflowEnabled ? 0 : undefined,
-            currentApproverId: isRiskWorkflowEnabled ? initialApproverId : undefined,
-            approvalHistory: [initialApprovalRecord]
+            workflowType: 'risks'
         };
 
         setConvertActionItem(actionData);
@@ -844,14 +819,11 @@ export const ProjectRisksTab = ({
                                     const isPending = risk.isApproved === false && !(risk as any).isRejected;
                                     const isRejected = risk.isApproved === false && !!(risk as any).isRejected;
 
-                                    const stages = getEffectiveProjectWorkflowStages('risks', project, dynamicWorkflowSettings);
-                                    const currentStageIdx = risk.currentStageIndex ?? 0;
-                                    const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                                    const effectiveApproverId = risk.currentApproverId ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
+                                    const effectiveApproverId = risk.currentApproverId ?? project?.projectManagerId;
                                     const approverUser = users?.find(u => String(u.id) === String(effectiveApproverId));
                                     const approverDisplay = approverUser 
                                         ? (approverUser.name ? `${approverUser.name} (${approverUser.username})` : approverUser.username)
-                                        : (stage?.approverId === 'ROLE_PM' ? (language === 'fa' ? 'مدیر پروژه' : 'Project Manager') : stage?.approverId === 'ROLE_OWNER' ? (language === 'fa' ? 'مالک پروژه' : 'Project Owner') : '-');
+                                        : '-';
 
                                     const isCurrentApprover = currentUserId && String(effectiveApproverId) === String(currentUserId);
                                     const canApproveThisRisk = isPMOrAdmin || isCurrentApprover;
@@ -1308,29 +1280,11 @@ export const ProjectStakeholdersTab = ({
     };
 
     const handleConvertToStakeholderAction = (sh: ProjectStakeholder) => {
-        const isShWorkflowEnabled = requiresWorkflow !== false;
-        const stages = getEffectiveProjectWorkflowStages('stakeholders', project, dynamicWorkflowSettings);
-        const firstStage = stages?.[0];
-        const initialApproverId = firstStage && project ? resolveWorkflowApproverId(firstStage.approverId, project) : (project?.projectManagerId || undefined);
 
         const pVal = sh.power === 'Low' ? 'Low' : 'High';
         const iVal = sh.interest === 'Low' ? 'Low' : 'High';
         const strategyText = sh.strategy || getStakeholderStrategy(pVal, iVal, language, effectiveStrategies);
 
-        const submitterActor = currentUser ? (currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username) : 'کاربر';
-        const initialApprovalRecord: ProjectApprovalRecord = isShWorkflowEnabled ? {
-            action: 'Submitted',
-            date: new Date().toISOString(),
-            actor: submitterActor,
-            stageTitle: firstStage?.stageTitle || (isFa ? 'ثبت اقدام استراتژی ذینفع' : 'Stakeholder Strategy Action Submission'),
-            comment: isFa ? `ایجاد اقدام از استراتژی تعامل با ذینفع «${sh.name}»` : `Action created from stakeholder strategy`
-        } : {
-            action: 'Approved',
-            date: new Date().toISOString(),
-            actor: 'System (No Workflow)',
-            stageTitle: isFa ? 'تایید خودکار' : 'Auto Approved',
-            comment: isFa ? 'بدون گردش کار تایید شد' : 'Approved without workflow'
-        };
 
         const actionData: Partial<ActionItem> = {
             title: isFa ? `اقدام تعامل با ذینفع: ${sh.name} (${strategyText})` : `Stakeholder Action: ${sh.name} (${strategyText})`,
@@ -1353,12 +1307,7 @@ export const ProjectStakeholdersTab = ({
                 stakeholderName: sh.name,
                 stakeholderStrategy: strategyText
             },
-            workflowType: 'stakeholders',
-            isApproved: !isShWorkflowEnabled,
-            isPending: isShWorkflowEnabled,
-            currentStageIndex: isShWorkflowEnabled ? 0 : undefined,
-            currentApproverId: isShWorkflowEnabled ? initialApproverId : undefined,
-            approvalHistory: [initialApprovalRecord]
+            workflowType: 'stakeholders'
         };
 
         setConvertActionItem(actionData);
@@ -1469,10 +1418,7 @@ export const ProjectStakeholdersTab = ({
                                 const isPending = sh.isApproved === false && !(sh as any).isRejected;
                                 const isRejected = sh.isApproved === false && !!(sh as any).isRejected;
 
-                                const stages = getEffectiveProjectWorkflowStages('stakeholders', project, dynamicWorkflowSettings);
-                                const currentStageIdx = sh.currentStageIndex ?? 0;
-                                const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                                const effectiveApproverId = sh.currentApproverId ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
+                                const effectiveApproverId = sh.currentApproverId ?? project?.projectManagerId;
                                 const approverUser = users?.find(u => String(u.id) === String(effectiveApproverId));
                                 const approverDisplay = approverUser ? (approverUser.name ? `${approverUser.name} (${approverUser.username})` : approverUser.username) : '-';
                                 const canApproveThisItem = currentUserId && (
@@ -1687,10 +1633,7 @@ export const ProjectStatusTab = ({ statusUpdates, users, onEdit, onDelete, isRea
                             const isPending = update.isApproved === false && !(update as any).isRejected;
                             const isRejected = update.isApproved === false && !!(update as any).isRejected;
 
-                            const stages = getEffectiveProjectWorkflowStages('status_updates', project, dynamicWorkflowSettings);
-                            const currentStageIdx = update.currentStageIndex ?? 0;
-                            const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                            const effectiveApproverId = update.currentApproverId ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
+                            const effectiveApproverId = update.currentApproverId ?? project?.projectManagerId;
                             const approverUser = users?.find(u => String(u.id) === String(effectiveApproverId));
                             const approverDisplay = approverUser ? (approverUser.name ? `${approverUser.name} (${approverUser.username})` : approverUser.username) : '-';
                             const canApproveThisItem = currentUserId && (
@@ -1806,10 +1749,7 @@ export const ProjectDelayReasonsTab = ({ delayReasons, users, onEdit, onDelete, 
                             const isPending = reason.isApproved === false && !(reason as any).isRejected;
                             const isRejected = reason.isApproved === false && !!(reason as any).isRejected;
 
-                            const stages = getEffectiveProjectWorkflowStages('delay_reasons', project, dynamicWorkflowSettings);
-                            const currentStageIdx = reason.currentStageIndex ?? 0;
-                            const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                            const effectiveApproverId = reason.currentApproverId ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
+                            const effectiveApproverId = reason.currentApproverId ?? project?.projectManagerId;
                             const approverUser = users?.find(u => String(u.id) === String(effectiveApproverId));
                             const approverDisplay = approverUser ? (approverUser.name ? `${approverUser.name} (${approverUser.username})` : approverUser.username) : '-';
                             const canApproveThisItem = currentUserId && (
@@ -1970,10 +1910,7 @@ export const ProjectDocumentsTab = ({ documents, users, onEdit, onDelete, isRead
                             const isRejected = doc.isApproved === false && !!(doc as any).isRejected;
                             const isSummarizing = loadingDocId === doc.id;
 
-                            const stages = getEffectiveProjectWorkflowStages('documents', project, dynamicWorkflowSettings);
-                            const currentStageIdx = doc.currentStageIndex ?? 0;
-                            const stage = stages ? (stages[currentStageIdx] || stages[0]) : undefined;
-                            const effectiveApproverId = doc.currentApproverId ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
+                            const effectiveApproverId = doc.currentApproverId ?? project?.projectManagerId;
                             const approverUser = users?.find(u => String(u.id) === String(effectiveApproverId));
                             const approverDisplay = approverUser ? (approverUser.name ? `${approverUser.name} (${approverUser.username})` : approverUser.username) : '-';
                             const canApproveThisItem = currentUserId && (
@@ -2301,9 +2238,7 @@ export const ProjectScheduleTab = ({ project, users, calendars, isReadOnly = fal
                 ),
                 React.createElement("td", null, (() => {
                     if (task.id === 'project-root') return '';
-                    const stages = dynamicWorkflowSettings?.activity_progress || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.activity_progress;
-                    const stage = stages[0];
-                    const effectiveApproverId = task.approver1Id ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
+                    const effectiveApproverId = task.approver1Id ?? project?.projectManagerId;
                     const approverUser = users?.find(u => String(u.id) === String(effectiveApproverId));
                     return approverUser ? (approverUser.name ? `${approverUser.name} (${approverUser.username})` : approverUser.username) : '-';
                 })()),
@@ -2640,9 +2575,7 @@ export const ProjectKanbanTab = ({ project, users, progressUpdates, onAddKanbanS
                                         React.createElement("div", { className: "kanban-card-detail", title: language === 'fa' ? 'تایید‌کننده' : 'Approver' },
                                             React.createElement("span", { className: "material-symbols-outlined" }, "verified_user"),
                                             React.createElement("span", null, (() => {
-                                                const stages = dynamicWorkflowSettings?.activity_progress || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.activity_progress;
-                                                const stage = stages[0];
-                                                const effectiveApproverId = task.approver1Id ?? (stage && project ? resolveWorkflowApproverId(stage.approverId, project) : project?.projectManagerId);
+                                                const effectiveApproverId = task.approver1Id ?? project?.projectManagerId;
                                                 const approverUser = users.find(u => String(u.id) === String(effectiveApproverId));
                                                 return approverUser?.username || 'N/A';
                                             })())
@@ -2728,440 +2661,5 @@ export const ProjectSprintsTab = ({ project, users }: {
                 )
             )
         )) : React.createElement("p", null, t('noTasksHere'))
-    );
-};
-
-const _DeprecatedProjectSettingsTab = ({ 
-    project,
-    onSaveSettings,
-    scheduleSnapshots, 
-    onSaveSnapshot, 
-    onDeleteSnapshot, 
-    onViewSnapshot,
-    currentUser,
-    users = [],
-    dynamicWorkflowSettings,
-    isReadOnly = false
-}: {
-    project: Project,
-    onSaveSettings: (settings: Partial<Project>) => void,
-    scheduleSnapshots: ScheduleSnapshot[],
-    onSaveSnapshot: (name: string, type: 'Baseline' | 'Progress Information') => void,
-    onDeleteSnapshot: (id: string) => void,
-    onViewSnapshot: (snapshot: ScheduleSnapshot) => void,
-    currentUser?: User | null,
-    users?: User[],
-    dynamicWorkflowSettings?: DynamicWorkflowSettings,
-    isReadOnly?: boolean
-}): ReactElement => {
-    const { t, language } = useContext(LocalizationContext);
-    const { theme } = useContext(ThemeContext);
-    const isDark = theme === 'dark';
-    const isFa = language === 'fa';
-    const [snapshotName, setSnapshotName] = useState('');
-    const [snapshotType, setSnapshotType] = useState<'Baseline' | 'Progress Information'>('Baseline');
-    const [localWeightingType, setLocalWeightingType] = useState(project.weightingType || 'manual');
-    const [localPlannedProgressType, setLocalPlannedProgressType] = useState(project.plannedProgressType || 'continuous');
-    const [timeWeightFactor, setTimeWeightFactor] = useState(project.timeWeightFactor || 34);
-    const [costWeightFactor, setCostWeightFactor] = useState(project.costWeightFactor || 33);
-    const [complexityWeightFactor, setComplexityWeightFactor] = useState(project.complexityWeightFactor || 33);
-    const [localEnabledTabs, setLocalEnabledTabs] = useState<string[]>(project.enabledTabs ?? ['charter', 'schedule', 'team', 'risks', 'status', 'delays', 'docs', 'actions']);
-    const defaultTabWorkflows = { charter: true, schedule: true, team: true, risks: true, stakeholders: true, status: true, delays: true, docs: true, actions: true };
-    const [localTabWorkflows, setLocalTabWorkflows] = useState<Record<string, boolean>>(project.tabWorkflows ?? defaultTabWorkflows);
-    const [localCustomWorkflowSettings, setLocalCustomWorkflowSettings] = useState<DynamicWorkflowSettings>(
-        project.customWorkflowSettings || dynamicWorkflowSettings || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS
-    );
-    const [activeWorkflowEntity, setActiveWorkflowEntity] = useState<WorkflowEntityType>('charter');
-    const [expandedTabId, setExpandedTabId] = useState<string | null>(null);
-
-    const projectOwnerId = project.ownerId || 1;
-    const isOwner = !!(currentUser && (String(projectOwnerId) === String(currentUser.id) || currentUser.role === 'Admin'));
-
-    useEffect(() => {
-        setLocalWeightingType(project.weightingType || 'manual');
-        setLocalPlannedProgressType(project.plannedProgressType || 'continuous');
-        setTimeWeightFactor(project.timeWeightFactor || 34);
-        setCostWeightFactor(project.costWeightFactor || 33);
-        setComplexityWeightFactor(project.complexityWeightFactor || 33);
-        setLocalEnabledTabs(project.enabledTabs ?? ['charter', 'schedule', 'team', 'risks', 'stakeholders', 'status', 'delays', 'docs', 'actions']);
-        setLocalTabWorkflows(project.tabWorkflows ?? defaultTabWorkflows);
-        setLocalCustomWorkflowSettings(project.customWorkflowSettings || dynamicWorkflowSettings || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS);
-    }, [project, dynamicWorkflowSettings]);
-    
-    const totalWeightFactor = timeWeightFactor + costWeightFactor + complexityWeightFactor;
-
-    const tabDefinitions: { id: string; name: string; entityType?: WorkflowEntityType }[] = [
-        { id: 'charter', name: t('projectCharter'), entityType: 'charter' },
-        { id: 'schedule', name: t('projectSchedule'), entityType: 'activity_progress' },
-        { id: 'team', name: t('projectTeam') },
-        { id: 'risks', name: t('projectRisks'), entityType: 'risks' },
-        { id: 'stakeholders', name: language === 'fa' ? 'ذینفعان پروژه' : 'Project Stakeholders', entityType: 'stakeholders' },
-        { id: 'status', name: t('projectStatus'), entityType: 'status_updates' },
-        { id: 'delays', name: language === 'fa' ? 'دلایل تاخیر' : 'Reasons for Delay', entityType: 'delay_reasons' },
-        { id: 'docs', name: t('projectDocuments'), entityType: 'documents' },
-        { id: 'actions', name: t('relatedActions'), entityType: 'activity_progress' },
-    ];
-
-    const handleToggleTab = (tabId: string) => {
-        if (localEnabledTabs.includes(tabId)) {
-            setLocalEnabledTabs(localEnabledTabs.filter(id => id !== tabId));
-        } else {
-            setLocalEnabledTabs([...localEnabledTabs, tabId]);
-        }
-    };
-
-    const handleToggleWorkflow = (tabId: string, directValue?: boolean) => {
-        setLocalTabWorkflows(prev => ({
-            ...prev,
-            [tabId]: directValue !== undefined ? directValue : !prev[tabId]
-        }));
-    };
-
-    const handleSave = () => {
-        if (localWeightingType === 'combined' && totalWeightFactor !== 100) {
-            alert(t('weightFactorsMustSum100'));
-            return;
-        }
-        onSaveSettings({ 
-            weightingType: localWeightingType, 
-            plannedProgressType: localPlannedProgressType,
-            timeWeightFactor,
-            costWeightFactor,
-            complexityWeightFactor,
-            enabledTabs: localEnabledTabs,
-            tabWorkflows: localTabWorkflows,
-            customWorkflowSettings: localCustomWorkflowSettings,
-        });
-    };
-
-    const handleSaveSnapshotClick = () => {
-        onSaveSnapshot(snapshotName, snapshotType);
-        setSnapshotName('');
-    };
-
-    const pmUser = users.find(u => String(u.id) === String(project.projectManagerId));
-    const ownerUser = users.find(u => String(u.id) === String(project.ownerId));
-
-    return React.createElement("div", { className: "project-settings-tab" },
-        React.createElement("div", { className: "form-section" },
-            React.createElement("h4", null, t('projectSettings')),
-            React.createElement("div", { className: "settings-form" },
-                React.createElement("div", { className: "settings-grid-2col" },
-                    React.createElement("div", { className: "form-group" },
-                        React.createElement("label", { htmlFor: "weightingType" }, t('weightingType')),
-                        React.createElement("select", { id: "weightingType", value: localWeightingType, onChange: (e: ChangeEvent<HTMLSelectElement>) => setLocalWeightingType(e.target.value as any) },
-                            React.createElement("option", { value: "manual" }, t('manual')),
-                            React.createElement("option", { value: "time-based" }, t('timeBased')),
-                            React.createElement("option", { value: "cost-based" }, t('costBased')),
-                            React.createElement("option", { value: "complexity-based" }, t('complexityBased')),
-                            React.createElement("option", { value: "combined" }, t('combined'))
-                        )
-                    ),
-                    React.createElement("div", { className: "form-group" },
-                        React.createElement("label", { htmlFor: "plannedProgressCalculation" }, t('plannedProgressCalculation')),
-                        React.createElement("select", { id: "plannedProgressCalculation", value: localPlannedProgressType, onChange: (e: ChangeEvent<HTMLSelectElement>) => setLocalPlannedProgressType(e.target.value as any) },
-                            React.createElement("option", { value: "continuous" }, t('continuousTime')),
-                            React.createElement("option", { value: "zero-hundred" }, t('zeroHundred'))
-                        )
-                    )
-                ),
-                localWeightingType === 'combined' && React.createElement("div", { className: "combined-weight-factors" },
-                    React.createElement("div", { className: "form-group" },
-                        React.createElement("label", { htmlFor: "timeWeightFactor" }, t('timeWeightFactor')),
-                        React.createElement("input", { type: "number", id: "timeWeightFactor", value: timeWeightFactor, onChange: (e) => setTimeWeightFactor(Number(e.target.value)), min: "0", max: "100" })
-                    ),
-                    React.createElement("div", { className: "form-group" },
-                        React.createElement("label", { htmlFor: "costWeightFactor" }, t('costWeightFactor')),
-                        React.createElement("input", { type: "number", id: "costWeightFactor", value: costWeightFactor, onChange: (e) => setCostWeightFactor(Number(e.target.value)), min: "0", max: "100" })
-                    ),
-                    React.createElement("div", { className: "form-group" },
-                        React.createElement("label", { htmlFor: "complexityWeightFactor" }, t('complexityWeightFactor')),
-                        React.createElement("input", { type: "number", id: "complexityWeightFactor", value: complexityWeightFactor, onChange: (e) => setComplexityWeightFactor(Number(e.target.value)), min: "0", max: "100" })
-                    ),
-                    React.createElement("div", { className: `combined-weight-factors-total ${totalWeightFactor !== 100 ? 'error' : ''}` }, `${t('totalWeight')}: ${language === 'fa' ? toPersianDigits(totalWeightFactor) : totalWeightFactor}%`)
-                )
-            ),
-            isOwner && React.createElement(Fragment, null,
-                React.createElement("div", { className: "form-section-separator", style: { margin: '2rem 0 1.5rem 0', borderTop: '1px solid var(--border-color, #e2e8f0)' } }),
-                React.createElement("div", { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' } },
-                    React.createElement("h4", { style: { margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' } }, 
-                        React.createElement("span", { className: "material-symbols-outlined", style: { color: isDark ? '#a5b4fc' : '#4f46e5' } }, "account_tree"),
-                        isFa ? 'دسترسی‌ها و گردش کار صفحات پروژه' : 'Project Pages Access & Workflows'
-                    ),
-                    React.createElement("span", { style: { fontSize: '0.8rem', color: isDark ? '#9ca3af' : '#6b7280' } },
-                        isFa ? 'تیک = گردش کار عمومی | بدون تیک = گردش کار منحصربفرد پروژه' : 'Checked = Global Workflow | Unchecked = Project Unique Workflow'
-                    )
-                ),
-                React.createElement("div", { 
-                    style: { 
-                        backgroundColor: isDark ? 'rgba(5, 150, 105, 0.15)' : '#f0fdf4', 
-                        border: isDark ? '1px solid rgba(52, 211, 153, 0.3)' : '1px solid #bbf7d0', 
-                        borderRadius: '8px', 
-                        padding: '0.75rem 1rem', 
-                        marginBottom: '1.25rem', 
-                        fontSize: '0.85rem', 
-                        color: isDark ? '#bbf7d0' : '#166534', 
-                        lineHeight: 1.6 
-                    } 
-                },
-                    React.createElement("div", { style: { display: 'flex', alignItems: 'flex-start', gap: '0.5rem' } },
-                        React.createElement("span", { className: "material-symbols-outlined", style: { fontSize: '1.2rem', color: isDark ? '#4ade80' : '#15803d', marginTop: '2px' } }, "info"),
-                        React.createElement("div", null,
-                            React.createElement("strong", { style: { color: isDark ? '#ecfdf5' : '#14532d' } }, isFa ? 'راهنمای گردش کار صفحات:' : 'Workflow Guide:'),
-                            ' ',
-                            isFa 
-                                ? 'در صورتی که ستون «نیاز به گردش کار» تیک داشته باشد، تاییدیه بر اساس گردش کار استاندارد و عمومی کل سیستم انجام می‌گیرد. اگر تیک برداشته شود، این صفحه گردش کار منحصربفرد این پروژه را خواهد داشت و می‌توانید مراحل، عناوین و تاییدکنندگان اختصاصی را در بخش زیر تعریف فرمایید.'
-                                : 'When checked, the global workflow is used. When unchecked, a unique project workflow is activated allowing per-page stage and approver customization below.'
-                        )
-                    )
-                ),
-                React.createElement("div", { className: "table-responsive", style: { marginBottom: '1.5rem' } },
-                    React.createElement("table", { className: "users-table" },
-                        React.createElement("thead", null, React.createElement("tr", null,
-                            React.createElement("th", null, isFa ? 'صفحه / تب پروژه' : 'Page / Tab'),
-                            React.createElement("th", { style: { textAlign: 'center' } }, isFa ? 'نمایش تب (فعال)' : 'Show Tab (Active)'),
-                            React.createElement("th", { style: { textAlign: 'center' } }, isFa ? 'نیاز به گردش کار (تیک = عمومی)' : 'Requires Workflow (Checked = Global)'),
-                            React.createElement("th", { style: { textAlign: 'center' } }, isFa ? 'وضعیت گردش کار فعال' : 'Active Workflow Status'),
-                            React.createElement("th", { style: { textAlign: 'center' } }, isFa ? 'تنظیم مراحل و دسترسی' : 'Configure Stages')
-                        )),
-                        React.createElement("tbody", null,
-                            tabDefinitions.map(tab => {
-                                const isTabEnabled = localEnabledTabs.includes(tab.id);
-                                const isWorkflowGlobal = localTabWorkflows[tab.id] !== false;
-                                const isCustom = !isWorkflowGlobal;
-                                const entityKey = tab.entityType;
-                                const customStages = entityKey ? (localCustomWorkflowSettings[entityKey] || []) : [];
-                                const stageCount = customStages.length;
-                                const isExpanded = expandedTabId === tab.id;
-
-                                return React.createElement(Fragment, { key: tab.id },
-                                    React.createElement("tr", { 
-                                        style: { 
-                                            backgroundColor: isExpanded 
-                                                ? (isDark ? 'rgba(124, 58, 237, 0.18)' : '#faf5ff') 
-                                                : (isCustom ? (isDark ? 'rgba(217, 119, 6, 0.12)' : '#fffbeb') : undefined),
-                                            transition: 'background-color 0.2s ease'
-                                        } 
-                                    },
-                                    React.createElement("td", { style: { fontWeight: 600 } }, 
-                                        React.createElement("span", { style: { display: 'inline-flex', alignItems: 'center', gap: '0.4rem' } },
-                                            tab.name,
-                                            isCustom && React.createElement("span", { 
-                                                style: { 
-                                                    backgroundColor: isDark ? 'rgba(217, 119, 6, 0.25)' : '#fef3c7', 
-                                                    color: isDark ? '#fde68a' : '#b45309', 
-                                                    fontSize: '0.7rem', 
-                                                    padding: '2px 6px', 
-                                                    borderRadius: '4px',
-                                                    border: isDark ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid #fde68a',
-                                                    fontWeight: 600
-                                                } 
-                                            }, isFa ? '⭐ منحصربفرد' : '⭐ Custom')
-                                        )
-                                    ),
-                                    React.createElement("td", { style: { textAlign: 'center' } }, 
-                                        React.createElement("input", { 
-                                            type: "checkbox", 
-                                            checked: isTabEnabled,
-                                            onChange: () => handleToggleTab(tab.id)
-                                        })
-                                    ),
-                                    React.createElement("td", { style: { textAlign: 'center' } }, 
-                                        React.createElement("input", { 
-                                            type: "checkbox", 
-                                            checked: isWorkflowGlobal,
-                                            disabled: currentUser?.role !== 'Admin',
-                                            title: currentUser?.role !== 'Admin' ? (isFa ? 'تنها ادمین سیستم می‌تواند گردش کار را تغییر دهد' : 'Only Admin can change tab workflow setting') : undefined,
-                                            onChange: () => currentUser?.role === 'Admin' && handleToggleWorkflow(tab.id)
-                                        })
-                                    ),
-                                    React.createElement("td", { style: { textAlign: 'center' } },
-                                        isWorkflowGlobal ? (
-                                            React.createElement("span", { 
-                                                style: { 
-                                                    display: 'inline-flex', 
-                                                    alignItems: 'center', 
-                                                    gap: '4px',
-                                                    backgroundColor: isDark ? 'rgba(79, 70, 229, 0.25)' : '#e0e7ff', 
-                                                    color: isDark ? '#c7d2fe' : '#3730a3', 
-                                                    padding: '4px 10px', 
-                                                    borderRadius: '9999px',
-                                                    fontSize: '0.75rem',
-                                                    fontWeight: 600,
-                                                    border: isDark ? '1px solid rgba(129, 140, 248, 0.4)' : '1px solid #c7d2fe'
-                                                } 
-                                            },
-                                                React.createElement("span", { className: "material-symbols-outlined", style: { fontSize: '0.95rem', color: isDark ? '#a5b4fc' : '#4f46e5' } }, "public"),
-                                                isFa ? 'گردش کار عمومی سیستم' : 'Global System Workflow'
-                                            )
-                                        ) : (
-                                            React.createElement("span", { 
-                                                style: { 
-                                                    display: 'inline-flex', 
-                                                    alignItems: 'center', 
-                                                    gap: '4px',
-                                                    backgroundColor: isDark ? 'rgba(217, 119, 6, 0.25)' : '#fef3c7', 
-                                                    color: isDark ? '#fef08a' : '#b45309', 
-                                                    padding: '4px 10px', 
-                                                    borderRadius: '9999px',
-                                                    fontSize: '0.75rem',
-                                                    fontWeight: 600,
-                                                    border: isDark ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid #fde68a'
-                                                } 
-                                            },
-                                                React.createElement("span", { className: "material-symbols-outlined", style: { fontSize: '0.95rem', color: isDark ? '#fbbf24' : '#d97706' } }, "star"),
-                                                isFa ? `منحصربفرد پروژه (${toPersianDigits(stageCount)} مرحله)` : `Unique Project (${stageCount} stages)`
-                                            )
-                                        )
-                                    ),
-                                    React.createElement("td", { style: { textAlign: 'center' } },
-                                        entityKey ? (
-                                            React.createElement("button", {
-                                                type: "button",
-                                                onClick: () => {
-                                                    if (isExpanded) {
-                                                        setExpandedTabId(null);
-                                                    } else {
-                                                        setExpandedTabId(tab.id);
-                                                        setActiveWorkflowEntity(entityKey);
-                                                        if (isWorkflowGlobal && currentUser?.role === 'Admin') {
-                                                            handleToggleWorkflow(tab.id, false);
-                                                        }
-                                                    }
-                                                },
-                                                style: {
-                                                    backgroundColor: isExpanded 
-                                                        ? '#7c3aed' 
-                                                        : (isCustom ? (isDark ? 'rgba(124, 58, 237, 0.25)' : '#f5f3ff') : (isDark ? 'rgba(255, 255, 255, 0.05)' : '#f8fafc')),
-                                                    color: isExpanded 
-                                                        ? '#ffffff' 
-                                                        : (isCustom ? (isDark ? '#ddd6fe' : '#6d28d9') : (isDark ? '#e2e8f0' : '#475569')),
-                                                    border: isExpanded 
-                                                        ? '1px solid #7c3aed' 
-                                                        : (isCustom ? (isDark ? '1px solid #a78bfa' : '1px solid #c4b5fd') : (isDark ? '1px solid #475569' : '1px solid #cbd5e1')),
-                                                    borderRadius: '6px',
-                                                    padding: '0.35rem 0.75rem',
-                                                    fontSize: '0.75rem',
-                                                    fontWeight: 600,
-                                                    cursor: 'pointer',
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: '4px',
-                                                    transition: 'all 0.15s ease',
-                                                    boxShadow: isExpanded ? '0 2px 4px rgba(124, 58, 237, 0.35)' : undefined
-                                                }
-                                            },
-                                                React.createElement("span", { className: "material-symbols-outlined", style: { fontSize: '0.95rem' } }, 
-                                                    isExpanded ? "expand_less" : "tune"
-                                                ),
-                                                isExpanded 
-                                                    ? (isFa ? 'بستن کشو' : 'Close Drawer')
-                                                    : (isFa ? 'تنظیم مراحل' : 'Configure')
-                                            )
-                                        ) : '-'
-                                    )
-                                ),
-                                /* Single Entity Inline Collapsible Drawer below the row */
-                                isExpanded && entityKey && React.createElement("tr", {
-                                    key: `${tab.id}-drawer`,
-                                    className: "workflow-drawer-row"
-                                },
-                                    React.createElement("td", { 
-                                        colSpan: 5, 
-                                        style: { 
-                                            padding: '1.25rem', 
-                                            backgroundColor: isDark ? 'rgba(124, 58, 237, 0.1)' : '#faf5ff', 
-                                            borderBottom: '2px solid #a855f7',
-                                            borderTop: isDark ? '1px dashed #7c3aed' : '1px dashed #d8b4fe',
-                                            boxShadow: isDark ? 'inset 0 2px 6px rgba(0, 0, 0, 0.3)' : 'inset 0 2px 6px rgba(124, 58, 237, 0.05)'
-                                        } 
-                                    },
-                                        React.createElement("div", { 
-                                            style: { 
-                                                borderRight: isFa ? '4px solid #a855f7' : undefined,
-                                                borderLeft: !isFa ? '4px solid #a855f7' : undefined,
-                                                paddingRight: isFa ? '1rem' : undefined,
-                                                paddingLeft: !isFa ? '1rem' : undefined
-                                            } 
-                                        },
-                                            React.createElement(DynamicWorkflowSettingsEditor, {
-                                                settings: localCustomWorkflowSettings,
-                                                onUpdateSettings: setLocalCustomWorkflowSettings,
-                                                users: users || [],
-                                                language: language,
-                                                isDark: isDark,
-                                                activeEntityType: entityKey,
-                                                hideEntityTabs: true,
-                                                showHeaderBanner: true,
-                                                onCloseDrawer: () => setExpandedTabId(null),
-                                                projectContext: {
-                                                    projectName: project.name,
-                                                    pmName: pmUser?.name ? `${pmUser.name} (${pmUser.username})` : pmUser?.username,
-                                                    ownerName: ownerUser?.name ? `${ownerUser.name} (${ownerUser.username})` : ownerUser?.username,
-                                                    tabWorkflows: localTabWorkflows,
-                                                    onToggleTabWorkflow: (tabKey, reqWorkflow) => {
-                                                        handleToggleWorkflow(tabKey, reqWorkflow);
-                                                    }
-                                                }
-                                            })
-                                        )
-                                    )
-                                )
-                            );
-                        })
-                    )
-                )
-            )
-        ),
-        React.createElement("button", { 
-                onClick: handleSave, 
-                className: "save-btn",
-                style: { marginTop: '1.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }
-            }, 
-                React.createElement("span", { className: "material-symbols-outlined" }, "save"),
-                t('save')
-            )
-        ),
-        React.createElement("div", { className: "form-section" },
-            React.createElement("h4", null, t('saveProgressInformation')),
-            React.createElement("div", { className: "inline-form snapshot-form" },
-                 React.createElement("input", { type: "text", value: snapshotName, onChange: (e: ChangeEvent<HTMLInputElement>) => setSnapshotName(e.target.value), placeholder: t('snapshotName'), "aria-label": t('snapshotName') }),
-                 React.createElement("select", { value: snapshotType, onChange: (e: ChangeEvent<HTMLSelectElement>) => setSnapshotType(e.target.value as any) },
-                    React.createElement("option", { value: "Baseline" }, t('baseline')),
-                    React.createElement("option", { value: "Progress Information" }, t('progressInfo'))
-                 ),
-                 React.createElement("button", { onClick: handleSaveSnapshotClick, className: "action-button", title: t('save'), "aria-label": t('save'), style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0.6rem' } },
-                     React.createElement("span", { className: "material-symbols-outlined" }, "save")
-                 )
-            ),
-            React.createElement("h4", { style: { marginTop: '1.5rem' } }, t('savedSnapshots')),
-            scheduleSnapshots.length === 0 ? React.createElement("p", null, t('noSnapshotsSaved')) : (
-                React.createElement("div", { className: "table-responsive" },
-                    React.createElement("table", { className: "users-table" },
-                        React.createElement("thead", null, React.createElement("tr", null,
-                            React.createElement("th", null, language === 'fa' ? 'ردیف' : '#'),
-                            React.createElement("th", null, t('snapshotName')),
-                            React.createElement("th", null, t('snapshotType')),
-                            React.createElement("th", null, t('snapshotDate')),
-                            React.createElement("th", null, t('actions'))
-                        )),
-                        React.createElement("tbody", null,
-                            scheduleSnapshots.map((snapshot, idx) => (
-                                React.createElement("tr", { key: snapshot.id },
-                                    React.createElement("td", null, language === 'fa' ? toPersianDigits(idx + 1) : (idx + 1)),
-                                    React.createElement("td", null, snapshot.name),
-                                    React.createElement("td", null, t(snapshot.type === 'Baseline' ? 'baseline' : 'progressInfo')),
-                                    React.createElement("td", null, formatDate(snapshot.date, language)),
-                                    React.createElement("td", { className: "action-cell" },
-                                        React.createElement("button", { onClick: () => onViewSnapshot(snapshot), className: "action-icon view", title: t('viewSnapshot') }, React.createElement("span", { className: "material-symbols-outlined" }, "visibility")),
-                                        React.createElement("button", { onClick: () => onDeleteSnapshot(snapshot.id), className: "action-icon delete", title: t('delete') }, React.createElement("span", { className: "material-symbols-outlined" }, "delete"))
-                                    )
-                                )
-                            ))
-                        )
-                    )
-                )
-            )
-        )
     );
 };

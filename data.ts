@@ -16,7 +16,6 @@ export const initialUsers: User[] = [
   { id: '8', username: 'user7', password: 'user7', role: 'Project Team', isActive: true, owningUnit: 'سازمان > واحد پشتیبانی > اداره امور عمومی' }
 ];
 
-export const initialDelegations: Delegation[] = [];
 
 export const initialOwningUnitsFlat: string[] = [
   'سازمان',

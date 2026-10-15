@@ -1,7 +1,7 @@
 
 
 import { getRuntimeUnitTree } from './services/backend/runtimeDirectory';
-import { Project, Calendar, ProjectActivity, EnrichedProject, PlannedProgressType, ActionItem, ActionRecurrence, User, VisibilitySettings, OwningUnitTreeNode } from './types';
+import { Project, Calendar, ProjectActivity, EnrichedProject, PlannedProgressType, ActionItem, ActionRecurrence, User, OwningUnitTreeNode } from './types';
 
 export const appLogoUrl = "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' width='512' height='512'%3E%3Crect width='512' height='512' rx='112' fill='%230f766e'/%3E%3Crect x='96' y='130' width='230' height='48' rx='24' fill='%23ffffff'/%3E%3Crect x='186' y='210' width='230' height='48' rx='24' fill='%23ffffff'/%3E%3Crect x='120' y='290' width='190' height='48' rx='24' fill='%23ffffff'/%3E%3Crect x='230' y='370' width='186' height='48' rx='24' fill='%23ffffff'/%3E%3C/svg%3E";
 
@@ -605,88 +605,6 @@ export const getUnitLevel2 = (unitName?: string | null, customTree?: OwningUnitT
  * Alias for getUnitLevel2 to ensure compatibility across all modules.
  */
 export const getUnitLevel1And2 = getUnitLevel2;
-
-export function isAncestorOrgUnit(headUnit: string, targetUnit: string, unitNodes?: OwningUnitTreeNode[]): boolean {
-    if (!headUnit || !targetUnit) return false;
-    const cleanHead = headUnit.trim();
-    const cleanTarget = targetUnit.trim();
-
-    // Exact match or string path match (e.g., target = "واحد اجرایی > اداره ۱ > گروه ۱", head = "واحد اجرایی")
-    if (cleanHead === cleanTarget) return true;
-    if (cleanTarget.startsWith(cleanHead + ' > ') || cleanTarget.startsWith(cleanHead + '>')) {
-        return true;
-    }
-
-    // Check tree hierarchy if available
-    if (unitNodes && unitNodes.length > 0) {
-        const targetNode = unitNodes.find(n => n.name === cleanTarget || cleanTarget.endsWith(n.name));
-        if (targetNode) {
-            let currParentId = targetNode.parentId;
-            while (currParentId) {
-                const parentNode = unitNodes.find(n => n.id === currParentId);
-                if (!parentNode) break;
-                if (parentNode.name === cleanHead) return true;
-                currParentId = parentNode.parentId;
-            }
-        }
-    }
-
-    return false;
-}
-
-export function isActionVisibleToUser(
-    action: ActionItem,
-    currentUser: User | null,
-    visibilitySettings: VisibilitySettings,
-    users: User[],
-    unitNodes?: OwningUnitTreeNode[]
-): boolean {
-    if (!currentUser) return false;
-    if (currentUser.role === 'Admin') return true;
-
-    // 1. Owner
-    if (visibilitySettings.viewByOwner && action.ownerUserId && String(action.ownerUserId) === String(currentUser.id)) {
-        return true;
-    }
-
-    // 2. Responsible
-    if (visibilitySettings.viewByManagerOrResponsible && action.responsibleUserId && String(action.responsibleUserId) === String(currentUser.id)) {
-        return true;
-    }
-
-    // 3. Approvers
-    if (visibilitySettings.viewByApprovers) {
-        if (action.approver1Id && String(action.approver1Id) === String(currentUser.id)) return true;
-        if (action.approver2Id && String(action.approver2Id) === String(currentUser.id)) return true;
-        if (action.approver3Id && String(action.approver3Id) === String(currentUser.id)) return true;
-    }
-
-    // 4. Resources (responsible is the primary resource)
-    if (visibilitySettings.viewByResources && action.responsibleUserId && String(action.responsibleUserId) === String(currentUser.id)) {
-        return true;
-    }
-
-    // 5. Org Heads
-    if (visibilitySettings.viewByOrgHeads && currentUser.owningUnit) {
-        const userUnit = currentUser.owningUnit;
-        const relatedUnits = new Set<string>();
-        if (action.owningUnit) relatedUnits.add(action.owningUnit);
-
-        const ownerUser = users.find(u => String(u.id) === String(action.ownerUserId));
-        if (ownerUser?.owningUnit) relatedUnits.add(ownerUser.owningUnit);
-
-        const respUser = users.find(u => String(u.id) === String(action.responsibleUserId));
-        if (respUser?.owningUnit) relatedUnits.add(respUser.owningUnit);
-
-        for (const targetUnit of relatedUnits) {
-            if (isAncestorOrgUnit(userUnit, targetUnit, unitNodes)) {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
 
 export function exportToPdf(options?: { title?: string; orientation?: 'landscape' | 'portrait' } | string): void {
     let title: string | undefined;

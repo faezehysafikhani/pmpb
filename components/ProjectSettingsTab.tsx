@@ -2,11 +2,12 @@ import React, { useState, useEffect, useMemo, useContext, ChangeEvent, ReactElem
 import { LocalizationContext, ThemeContext } from '../context';
 import { 
     User, Project, ScheduleSnapshot, WorkflowEntityType, DynamicWorkflowSettings, 
-    DEFAULT_DYNAMIC_WORKFLOW_SETTINGS, ProjectContractPermissions, ProjectInvoicePermissions,
+    ProjectContractPermissions, ProjectInvoicePermissions,
     Calendar, ProjectActivity
 } from '../types';
 import { formatDate, toPersianDigits } from '../utils';
 import { DynamicWorkflowSettingsEditor } from './DynamicWorkflowSettingsEditor';
+import { emptyWorkflowSettings, useGovernance } from '../directory/GovernanceContext';
 
 export const ProjectSettingsTab = ({ 
     project,
@@ -19,7 +20,6 @@ export const ProjectSettingsTab = ({
     onViewSnapshot,
     currentUser,
     users = [],
-    dynamicWorkflowSettings,
     isReadOnly = false
 }: {
     project: Project,
@@ -32,7 +32,6 @@ export const ProjectSettingsTab = ({
     onViewSnapshot: (snapshot: ScheduleSnapshot) => void,
     currentUser?: User | null,
     users?: User[],
-    dynamicWorkflowSettings?: DynamicWorkflowSettings,
     isReadOnly?: boolean
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
@@ -70,30 +69,17 @@ export const ProjectSettingsTab = ({
     const [timeWeightFactor, setTimeWeightFactor] = useState(project.timeWeightFactor || 34);
     const [costWeightFactor, setCostWeightFactor] = useState(project.costWeightFactor || 33);
     const [complexityWeightFactor, setComplexityWeightFactor] = useState(project.complexityWeightFactor || 33);
-    const [localEnabledTabs, setLocalEnabledTabs] = useState<string[]>(project.enabledTabs ?? ['charter', 'schedule', 'team', 'risks', 'status', 'delays', 'docs', 'actions', 'contracts', 'invoices']);
-    const defaultTabWorkflows = { charter: true, schedule: true, team: true, risks: true, stakeholders: true, status: true, delays: true, docs: true, actions: true, contracts: true, invoices: true };
-    const [localTabWorkflows, setLocalTabWorkflows] = useState<Record<string, boolean>>(project.tabWorkflows ?? defaultTabWorkflows);
-    const [localCustomWorkflowSettings, setLocalCustomWorkflowSettings] = useState<DynamicWorkflowSettings>(
-        project.customWorkflowSettings || dynamicWorkflowSettings || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS
-    );
-    const [contractPermissions, setContractPermissions] = useState<ProjectContractPermissions>(
-        project.contractPermissions || {
-            viewByAdmin: true,
-            viewByPM: true,
-            viewByTeam: false,
-            manageByAdmin: true,
-            manageByPM: true
-        }
-    );
-    const [invoicePermissions, setInvoicePermissions] = useState<ProjectInvoicePermissions>(
-        project.invoicePermissions || {
-            viewByAdmin: true,
-            viewByPM: true,
-            viewByTeam: false,
-            manageByAdmin: true,
-            manageByPM: true
-        }
-    );
+    // Which sections the project shows, who may see its contracts and invoices, and the project's own approval chains are the backend's;
+    // they are edited here as a draft and saved together.
+    const governance = useGovernance();
+    const stored = governance.settingsOf(project.id);
+    const ALL_TABS = ['charter', 'schedule', 'team', 'risks', 'stakeholders', 'status', 'delays', 'docs', 'actions', 'contracts', 'invoices'];
+    const [localEnabledTabs, setLocalEnabledTabs] = useState<string[]>(stored.enabledTabs ?? ALL_TABS);
+    /** By tab: the project has its own approval chain for it. */
+    const [localTabWorkflows, setLocalTabWorkflows] = useState<Record<string, boolean>>({});
+    const [localCustomWorkflowSettings, setLocalCustomWorkflowSettings] = useState<DynamicWorkflowSettings>(emptyWorkflowSettings());
+    const [contractPermissions, setContractPermissions] = useState<ProjectContractPermissions>(stored.contractPermissions);
+    const [invoicePermissions, setInvoicePermissions] = useState<ProjectInvoicePermissions>(stored.invoicePermissions);
 
     const [activeWorkflowEntity, setActiveWorkflowEntity] = useState<WorkflowEntityType>('charter');
     const [expandedTabId, setExpandedTabId] = useState<string | null>(null);
@@ -107,24 +93,28 @@ export const ProjectSettingsTab = ({
         setTimeWeightFactor(project.timeWeightFactor || 34);
         setCostWeightFactor(project.costWeightFactor || 33);
         setComplexityWeightFactor(project.complexityWeightFactor || 33);
-        setLocalEnabledTabs(project.enabledTabs ?? ['charter', 'schedule', 'team', 'risks', 'stakeholders', 'status', 'delays', 'docs', 'actions', 'contracts', 'invoices']);
-        setLocalTabWorkflows(project.tabWorkflows ?? defaultTabWorkflows);
-        setLocalCustomWorkflowSettings(project.customWorkflowSettings || dynamicWorkflowSettings || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS);
-        setContractPermissions(project.contractPermissions || {
-            viewByAdmin: true,
-            viewByPM: true,
-            viewByTeam: false,
-            manageByAdmin: true,
-            manageByPM: true
+    }, [project]);
+
+    // The sections / access settings follow what the backend holds for this project.
+    useEffect(() => {
+        const settings = governance.settingsOf(project.id);
+        setLocalEnabledTabs(settings.enabledTabs ?? ALL_TABS);
+        setContractPermissions(settings.contractPermissions);
+        setInvoicePermissions(settings.invoicePermissions);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [project.id, governance.projectSettings]);
+
+    // The approval chains that apply to this project (its own where it has one, otherwise the organisation's), read when the tab opens.
+    useEffect(() => {
+        let cancelled = false;
+        void governance.loadProjectWorkflow(project.id).then(view => {
+            if (cancelled || !view) return;
+            setLocalTabWorkflows(view.custom);
+            setLocalCustomWorkflowSettings(view.settings);
         });
-        setInvoicePermissions(project.invoicePermissions || {
-            viewByAdmin: true,
-            viewByPM: true,
-            viewByTeam: false,
-            manageByAdmin: true,
-            manageByPM: true
-        });
-    }, [project, dynamicWorkflowSettings]);
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [project.id]);
     
     const totalWeightFactor = timeWeightFactor + costWeightFactor + complexityWeightFactor;
 
@@ -157,24 +147,25 @@ export const ProjectSettingsTab = ({
         }));
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (localWeightingType === 'combined' && totalWeightFactor !== 100) {
             alert(t('weightFactorsMustSum100'));
             return;
         }
+        const failed = async (work: Promise<{ ok: boolean; message?: string }>) => {
+            const outcome = await work;
+            if (!outcome.ok) alert(outcome.message || (isFa ? 'ذخیره انجام نشد.' : 'The settings could not be saved.'));
+            return !outcome.ok;
+        };
+        if (await failed(governance.saveProjectWorkflow(project.id, { custom: localTabWorkflows, settings: localCustomWorkflowSettings }))) return;
+        if (await failed(governance.saveProjectSettings(project.id, { enabledTabs: localEnabledTabs, contractPermissions, invoicePermissions }))) return;
         onSaveSettings({ 
             weightingType: localWeightingType, 
             plannedProgressType: localPlannedProgressType,
             timeWeightFactor,
             costWeightFactor,
-            complexityWeightFactor,
-            enabledTabs: localEnabledTabs,
-            tabWorkflows: localTabWorkflows,
-            customWorkflowSettings: localCustomWorkflowSettings,
-            contractPermissions,
-            invoicePermissions
+            complexityWeightFactor
         });
-        alert(isFa ? 'تنظیمات پروژه با موفقیت ذخیره شد.' : 'Project settings saved successfully.');
     };
 
     const handleSaveSnapshotClick = () => {
@@ -444,7 +435,7 @@ export const ProjectSettingsTab = ({
                                 const isWorkflowGlobal = !localTabWorkflows[tab.id];
                                 const isCustom = !isWorkflowGlobal;
                                 const isExpanded = expandedTabId === tab.id;
-                                const stageCount = entityKey ? (localCustomWorkflowSettings[entityKey]?.stages?.length || 0) : 0;
+                                const stageCount = entityKey ? (localCustomWorkflowSettings[entityKey]?.length || 0) : 0;
 
                                 return React.createElement(Fragment, { key: tab.id },
                                     React.createElement("tr", { 
@@ -564,9 +555,10 @@ export const ProjectSettingsTab = ({
                                                     projectName: project.name,
                                                     pmName: pmUser?.name ? `${pmUser.name} (${pmUser.username})` : pmUser?.username,
                                                     ownerName: ownerUser?.name ? `${ownerUser.name} (${ownerUser.username})` : ownerUser?.username,
-                                                    tabWorkflows: localTabWorkflows,
-                                                    onToggleTabWorkflow: (tabKey, reqWorkflow) => {
-                                                        handleToggleWorkflow(tabKey, reqWorkflow);
+                                                    // The editor's wording: true = the tab follows the organisation's chain.
+                                                    tabWorkflows: Object.fromEntries(tabDefinitions.map(tabDef => [tabDef.id, !localTabWorkflows[tabDef.id]])),
+                                                    onToggleTabWorkflow: (tabKey, isCurrentlyCustom) => {
+                                                        handleToggleWorkflow(tabKey, !isCurrentlyCustom);
                                                     }
                                                 }
                                             })

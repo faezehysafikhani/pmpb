@@ -9,6 +9,7 @@ export const BackendInstanceStatus = { InProgress: 0, Approved: 1, Rejected: 2 }
 
 /** The kinds of things the Workflow backend is asked about (the `subjectType` the register services submit under). */
 export const SubjectType = {
+  project: 'Project',
   risk: 'Risk',
   stakeholder: 'Stakeholder',
   status: 'ProgressUpdate',
@@ -115,6 +116,8 @@ export interface BackendInstance {
   decisions: BackendDecision[];
   currentApproverUserId: string | null;
   delegatedFromUserId: string | null;
+  /** The steps this approval runs: their titles and the people they resolved to when it started. */
+  steps?: { order: number; name: string; approverUserId: string | null }[] | null;
 }
 
 export interface RiskBody {
