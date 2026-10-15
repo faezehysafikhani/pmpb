@@ -1623,7 +1623,7 @@ export const ActionModal = ({
         }
 
         const finalItem: ActionItem = {
-            id: actionData.id || Date.now(),
+            id: actionData.id || '',
             title: actionData.title.trim(),
             description: actionData.description || '',
             ownerUserId: actionData.ownerUserId || currentUser?.id || null,
@@ -1632,7 +1632,7 @@ export const ActionModal = ({
             approver2Id: actionData.approver2Id || null,
             approver3Id: actionData.approver3Id || null,
             status: actionData.status || 'Planning',
-            calendarId: actionData.calendarId || 1,
+            calendarId: actionData.calendarId || '',
             startDate: actionData.startDate,
             endDate: actionData.endDate,
             owningUnit: actionData.owningUnit || (owningUnits[0] || ''),
@@ -2235,7 +2235,7 @@ export const ActionStatusUpdateModal = ({ isOpen, onClose, action, onSubmit }: {
     isOpen: boolean;
     onClose: () => void;
     action: ActionItem;
-    onSubmit: (actionId: number, newStatus: WorkStatus, currentStatus: WorkStatus, comment: string) => void;
+    onSubmit: (actionId: string, newStatus: WorkStatus, currentStatus: WorkStatus, comment: string) => void;
 }): ReactElement | null => {
     const { t } = useContext(LocalizationContext);
     const [newStatus, setNewStatus] = useState<WorkStatus>(action.status);
@@ -3108,7 +3108,7 @@ export const OrgChartModal = ({ isOpen, onClose, projects, onNavigate, calendars
 };
 
 export const ActionHistoryModal = ({ actionId, users, progressUpdates, actions, onClose }: {
-    actionId: number;
+    actionId: string;
     users: User[];
     progressUpdates: ProgressUpdate[];
     actions: ActionItem[];

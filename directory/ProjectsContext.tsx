@@ -9,8 +9,8 @@ import { projects as projectsApi, projectTeam } from '../services/backend/projec
 import type { BackendProjectMember } from '../services/backend/projects';
 import { backendStatusOf, backendTypeOf, PROJECT_CORE_KEYS, toProjectBody, toUiProject } from '../services/backend/mappers';
 import {
-  approvals, delayReasons as delayReasonsApi, documents as documentsApi, risks as risksApi, stakeholders as stakeholdersApi,
-  statusUpdates as statusUpdatesApi
+  approvals, delayReasons as delayReasonsApi, documents as documentsApi, riskResponses as riskResponsesApi, risks as risksApi,
+  stakeholders as stakeholdersApi, statusUpdates as statusUpdatesApi
 } from '../services/backend/registers';
 import type { RegisterKind } from '../services/backend/registers';
 import {
@@ -19,6 +19,9 @@ import {
 } from '../services/backend/registerMappers';
 import { loadRegisters } from '../services/backend/registerLoad';
 import { loadPlanning } from '../services/backend/planningLoad';
+import { loadContracts } from '../services/backend/contractLoad';
+import { createContractOps } from './contractOps';
+import type { ContractOps } from './contractOps';
 import { createPlanningOps } from './planningOps';
 import type { PlanningOps } from './planningOps';
 import type { ProjectRegisters } from '../services/backend/registerLoad';
@@ -30,7 +33,7 @@ export interface ProjectOutcome extends Outcome {
   project?: Project;
 }
 
-interface ProjectsState extends PlanningOps {
+interface ProjectsState extends PlanningOps, ContractOps {
   /** The progress reports and status requests the backend holds (every visible project), newest first; each has its approval state and history. */
   progressUpdates: ProgressUpdate[];
   loading: boolean;
@@ -55,8 +58,10 @@ interface ProjectsState extends PlanningOps {
   /** Creates (no id) or updates a risk; a new risk is sent for approval, as is an edited one that had been rejected. */
   saveRisk: (projectId: string, risk: ProjectRisk | Omit<ProjectRisk, 'id'>) => Promise<ProjectOutcome>;
   deleteRisk: (projectId: string, id: string) => Promise<ProjectOutcome>;
-  /** The execution state of a risk's response plan. */
+  /** The execution state of a risk's response plan, set directly (no verification). */
   setRiskResponseStatus: (projectId: string, id: string, status: WorkStatus) => Promise<ProjectOutcome>;
+  /** Reports where the work on a risk's response stands; the backend sends it for verification (or applies it at once when no workflow is set). */
+  submitRiskResponse: (projectId: string, riskId: string, status: WorkStatus, comment: string) => Promise<ProjectOutcome>;
   saveRiskDefinitions: (projectId: string, definitions: RiskProbabilityImpactDefinitions) => Promise<ProjectOutcome>;
   saveRiskMatrixColors: (projectId: string, colors: Record<string, 'red' | 'yellow' | 'green'>) => Promise<ProjectOutcome>;
   saveStakeholder: (projectId: string, stakeholder: ProjectStakeholder | Omit<ProjectStakeholder, 'id'>) => Promise<ProjectOutcome>;
@@ -113,16 +118,11 @@ function extrasOf(project: Project): Partial<Project> {
 const fail = (message?: string, code?: string): ProjectOutcome => ({ ok: false, message, code });
 
 /**
- * Transitional, two small pieces the backend does not hold yet; they stay in this browser, keyed by item id, and are put back on
- * the items the backend returns:
- *  - the second approval round on a risk's response (the assignee reports a new response status and a verifier confirms it):
- *    it is connected with the task centre in a later phase;
- *  - the AI summary / relevance notes on a document (the AI features are not part of this connection).
+ * Transitional: the AI summary / relevance notes on a document are not held by the backend (the AI features are not part of this
+ * connection); they stay in this browser, keyed by item id, and are put back on the documents the backend returns.
  */
 const LOCAL_KEY = 'pms_register_local';
-const RISK_LOCAL_FIELDS = [
-  'submittedResponseStatus', 'verificationStatus', 'verificationStageIndex', 'verificationApproverId', 'verificationHistory', 'verificationComment'
-] as const;
+const RISK_LOCAL_FIELDS = [] as const;
 const DOCUMENT_LOCAL_FIELDS = ['aiSummary', 'aiRelevance', 'aiRelevanceReason'] as const;
 
 interface LocalOnly {
@@ -220,15 +220,17 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
 
     const registers = await loadRegisters(list.map(p => p.id), people);
     const planning = await loadPlanning(list.map(p => ({ id: p.id, type: p.type === 1 ? 'agile' as const : 'waterfall' as const })), people);
-    instanceByItem.current = new Map([...registers.instanceByItem, ...planning.instanceByItem]);
+    const contracts = await loadContracts(list.map(p => p.id), people);
+    instanceByItem.current = new Map([...registers.instanceByItem, ...planning.instanceByItem, ...contracts.instanceByItem]);
     setProgressUpdates(planning.progressUpdates);
     if (registers.error) setError(registers.error);
     else if (planning.error) setError(planning.error);
+    else if (contracts.error) setError(contracts.error);
 
     const extras = readExtras();
     const mapped = list.map(p => toUiProject(
       p, directory.unitPathById, membersByProject.get(p.id) ?? [], extras[p.id],
-      withLocalOnly(registers.byProject.get(p.id) as ProjectRegisters), planning.byProject.get(p.id)));
+      withLocalOnly(registers.byProject.get(p.id) as ProjectRegisters), planning.byProject.get(p.id), contracts.byProject.get(p.id)));
     setProjects(mapped);
     loaded.current = true;
     setLoading(false);
@@ -342,6 +344,8 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
       deleteRisk: async (projectId: string, id: string) => settle(projectId, await risksApi.remove(id)),
       setRiskResponseStatus: async (projectId: string, id: string, status: WorkStatus) =>
         settle(projectId, await risksApi.setResponseStatus(id, backendResponseStatusOf(status))),
+      submitRiskResponse: async (projectId: string, riskId: string, status: WorkStatus, comment: string) =>
+        settle(projectId, await riskResponsesApi.submit(tenant(), riskId, backendResponseStatusOf(status), comment || null)),
       saveRiskDefinitions: async (projectId: string, definitions: RiskProbabilityImpactDefinitions) =>
         settle(projectId, await risksApi.saveSettings(tenant(), projectId, toRiskDefinitionsBody(definitions), null)),
       saveRiskMatrixColors: async (projectId: string, colors: Record<string, 'red' | 'yellow' | 'green'>) =>
@@ -470,6 +474,14 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
     taskOfUpdate: updateId => progressUpdatesRef.current.find(u => u.id === updateId)?.taskId
   }), [tenantId, people, patchProject, replaceUpdates]);
 
+  const contractOps = React.useMemo(() => createContractOps({
+    tenantId,
+    people,
+    getProject: id => projectsRef.current.find(p => p.id === id),
+    patchProject,
+    get instances() { return instanceByItem.current; }
+  }), [tenantId, people, patchProject]);
+
   const value = React.useMemo<ProjectsState>(() => ({
     loading,
     error,
@@ -550,8 +562,9 @@ export const ProjectsProvider = ({ children }: { children: React.ReactNode }) =>
 
     ...registerOps,
     ...planningOps,
+    ...contractOps,
     progressUpdates
-  }), [loading, error, projects, reload, load, tenantId, bodyOf, finish, registerOps, planningOps, progressUpdates]);
+  }), [loading, error, projects, reload, load, tenantId, bodyOf, finish, registerOps, planningOps, contractOps, progressUpdates]);
 
   return React.createElement(ProjectsContext.Provider, { value }, children);
 };

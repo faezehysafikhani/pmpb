@@ -8,7 +8,7 @@ import {
   BackendDelayRootCause, BackendDocumentType, BackendInstanceStatus, BackendPower, BackendRiskResponse
 } from './registers';
 import type {
-  BackendDelayReason, BackendDocument, BackendInstance, BackendRisk, BackendRiskSettings, BackendStakeholder,
+  BackendRiskResponseReport, BackendDelayReason, BackendDocument, BackendInstance, BackendRisk, BackendRiskSettings, BackendStakeholder,
   BackendStakeholderSettings, BackendStatusUpdate, RiskBody, StakeholderBody
 } from './registers';
 
@@ -45,7 +45,7 @@ const day = (iso: string) => iso.slice(0, 10);
 
 type Approval = Pick<ProjectRisk, 'isApproved' | 'isRejected' | 'currentStageIndex' | 'currentApproverId' | 'approvalHistory'>;
 
-function approvalOf(status: number, instance: BackendInstance | undefined, people: People): Approval {
+export function approvalOf(status: number, instance: BackendInstance | undefined, people: People): Approval {
   const history: ProjectApprovalRecord[] = (instance?.decisions ?? [])
     .slice()
     .sort((a, b) => a.stepOrder - b.stepOrder || a.decidedAtUtc.localeCompare(b.decidedAtUtc))
@@ -80,6 +80,32 @@ export const backendResponseStatusOf = (status: string | undefined): number =>
     : status === 'On Hold' ? BackendRiskResponse.OnHold
       : status === 'Completed' ? BackendRiskResponse.Completed
         : BackendRiskResponse.Planning;
+
+/**
+ * Where the work on a risk's response stands as the task and approval centres show it: the latest report of the response status with its
+ * approval (waiting, verified or refused), its decision history and who must decide next. All of it is the backend's.
+ */
+export function toUiRiskVerification(
+  report: BackendRiskResponseReport | undefined, instance: BackendInstance | undefined, people: People
+): Pick<ProjectRisk, 'submittedResponseStatus' | 'verificationStatus' | 'verificationStageIndex' | 'verificationApproverId' | 'verificationHistory' | 'verificationComment' | 'verificationReportId'> {
+  if (!report) return {};
+  const approval = approvalOf(report.approvalStatus, instance, people);
+  const last = approval.approvalHistory?.at(-1);
+  return {
+    verificationReportId: report.id,
+    submittedResponseStatus: report.approvalStatus === BackendApprovalStatus.PendingApproval ? UI_RESPONSE_STATUS[report.submittedStatus] : undefined,
+    verificationStatus: report.approvalStatus === BackendApprovalStatus.PendingApproval ? 'Pending Approval'
+      : report.approvalStatus === BackendApprovalStatus.Approved ? 'Approved'
+        : report.approvalStatus === BackendApprovalStatus.Rejected ? 'Rejected' : 'Unsubmitted',
+    verificationStageIndex: approval.currentStageIndex,
+    verificationApproverId: approval.currentApproverId,
+    verificationComment: last?.comment,
+    verificationHistory: [
+      { action: 'Submitted', date: report.submittedAtUtc, actor: people.labelOf(report.submittedByUserId), comment: report.comment ?? undefined },
+      ...(approval.approvalHistory ?? [])
+    ]
+  };
+}
 
 export function toUiRisk(risk: BackendRisk, instance: BackendInstance | undefined, people: People): ProjectRisk {
   return {

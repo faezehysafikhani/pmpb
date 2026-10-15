@@ -269,7 +269,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
     calendars: any[],
     onAddProgressUpdate: (projectId: string, activityId: string, progress: number, submissionComment: string, documentName?: string) => void,
     onAddKanbanStatusUpdate: (projectId: string, taskId: string, newStatus: KanbanStatus, comment: string) => void,
-    onAddActionStatusUpdate: (actionId: number, newStatus: WorkStatus, currentStatus: WorkStatus, comment: string) => void,
+    onAddActionStatusUpdate: (actionId: string, newStatus: WorkStatus, currentStatus: WorkStatus, comment: string) => void,
     onUpdateRiskResponseStatus?: (projectId: string, riskId: string, newStatus: WorkStatus, comment: string) => void,
     onNavigate: (page: string) => void,
     allProcessedActivities: Map<string, ProjectActivity>,
@@ -744,7 +744,7 @@ export const TaskCenterPage = ({ projects, actions, users, currentUser, progress
         }
     };
 
-    const handleSaveActionStatus = (actionId: number, newStatus: WorkStatus, currentStatus: WorkStatus, comment: string) => {
+    const handleSaveActionStatus = (actionId: string, newStatus: WorkStatus, currentStatus: WorkStatus, comment: string) => {
         if (actionStatusUpdateModal && (actionStatusUpdateModal as any).isRiskResponse) {
             if (onUpdateRiskResponseStatus) {
                 onUpdateRiskResponseStatus((actionStatusUpdateModal as any).projectId, (actionStatusUpdateModal as any).riskId, newStatus, comment);
@@ -1236,7 +1236,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
         const list: {
             projectId: string;
             projectName: string;
-            tabId: 'risks' | 'status' | 'delays' | 'docs' | 'stakeholders';
+            tabId: 'risks' | 'status' | 'delays' | 'docs' | 'stakeholders' | 'contracts' | 'amendments' | 'invoices';
             tabLabel: string;
             itemId: string;
             description: string;
@@ -1379,67 +1379,51 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
                     }
                 }
             });
+
+            // Contracts, their addenda and invoices: the backend's workflow says which are waiting and for whom.
+            const waitingForMe = (item: { isPending?: boolean; currentApproverId?: string }) =>
+                !!item.isPending && (String(item.currentApproverId) === String(currentUser.id) || currentUser.role === 'Admin');
+            const submitterOf = (id?: string) => users.find(u => u.id === id)?.username || 'N/A';
+            (p.contracts || []).forEach(c => {
+                if (waitingForMe(c)) {
+                    list.push({
+                        projectId: p.id, projectName: p.name, tabId: 'contracts', tabLabel: language === 'fa' ? 'قراردادها' : 'Contracts',
+                        itemId: c.id, description: `${c.contractNumber} - ${c.title}`, submitterName: submitterOf(c.submittedBy)
+                    });
+                }
+                (c.amendments || []).forEach(a => {
+                    if (waitingForMe(a)) {
+                        list.push({
+                            projectId: p.id, projectName: p.name, tabId: 'amendments', tabLabel: language === 'fa' ? 'الحاقیه‌های قرارداد' : 'Contract Addenda',
+                            itemId: a.id, description: `${c.title} - ${language === 'fa' ? 'الحاقیه' : 'Addendum'} ${a.amendmentNumber}`, submitterName: submitterOf(c.submittedBy)
+                        });
+                    }
+                });
+            });
+            (p.invoices || []).forEach(i => {
+                if (waitingForMe(i)) {
+                    list.push({
+                        projectId: p.id, projectName: p.name, tabId: 'invoices', tabLabel: language === 'fa' ? 'صورتحساب‌ها' : 'Invoices',
+                        itemId: i.id, description: `${i.invoiceNumber} - ${i.title}`, submitterName: submitterOf(i.submittedBy)
+                    });
+                }
+            });
         });
 
         return list;
     }, [projects, users, currentUser, language, dynamicWorkflowSettings]);
 
     // The approval of a register item is the backend's workflow: it records the decision, moves to the next step or finishes, and checks
-    // that the signed-in user is the one who may decide. The one exception is the risk-response verification round (below), which is
-    // connected in a later phase.
+    // that the signed-in user is the one who may decide - the verification of a risk's response report included.
     const registers = useProjects();
     const registerKindOfTab: Record<string, RegisterKind> = { risks: 'risk', stakeholders: 'stakeholder', status: 'status', delays: 'delay', docs: 'document' };
 
-    const verifyRisk = (projectId: string, itemId: string, approve: boolean, comment?: string) => {
-        const actorName = currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username || 'User';
-        let finalStatus: WorkStatus | null = null;
-        setProjects(prev => prev.map(p => {
-            if (p.id !== projectId) return p;
-            const stages = getEffectiveProjectWorkflowStages('risks', p, dynamicWorkflowSettings);
-            return {
-                ...p,
-                risks: (p.risks || []).map(r => {
-                    if (r.id !== itemId) return r;
-                    const currentStageIdx = r.verificationStageIndex ?? 0;
-                    const currentStage = stages ? stages[currentStageIdx] : undefined;
-                    const stageTitle = currentStage ? currentStage.stageTitle : (language === 'fa' ? `مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Stage ${currentStageIdx + 1}`);
-                    const baseHistory = r.verificationHistory && r.verificationHistory.length > 0
-                        ? r.verificationHistory
-                        : [{
-                            action: 'Submitted' as const,
-                            date: getISODateTimeString(),
-                            actor: r.assignedTo || 'مسئول ریسک',
-                            stageTitle: language === 'fa' ? 'ثبت وضعیت اقدام' : 'Submit Response Status',
-                            comment: language === 'fa' ? 'ثبت وضعیت اقدام پاسخ ریسک' : 'Submit Response Status'
-                        }];
-
-                    if (!approve) {
-                        const rec: ProjectApprovalRecord = {
-                            action: 'Rejected', date: getISODateTimeString(), actor: actorName, stageTitle,
-                            comment: comment || (language === 'fa' ? 'عدم تایید صحه گذاری' : 'Verification Rejected')
-                        };
-                        return { ...r, verificationStatus: 'Rejected', verificationHistory: [...baseHistory, rec] };
-                    }
-
-                    const hasNextStage = !!(stages && currentStageIdx < stages.length - 1);
-                    const rec: ProjectApprovalRecord = {
-                        action: 'Approved', date: getISODateTimeString(), actor: actorName, stageTitle,
-                        comment: comment || (!hasNextStage ? (language === 'fa' ? 'تایید نهایی صحه گذاری شد' : 'Final Verification Approved') : (language === 'fa' ? `تایید مرحله ${toPersianDigits(currentStageIdx + 1)}` : `Approved Stage ${currentStageIdx + 1}`))
-                    };
-                    const updatedHistory = [...baseHistory, rec];
-                    if (hasNextStage && stages) {
-                        const nextIdx = currentStageIdx + 1;
-                        const nextStage = stages[nextIdx];
-                        const nextApproverId = nextStage ? resolveWorkflowApproverId(nextStage.approverId, p) : p.projectManagerId;
-                        return { ...r, verificationStageIndex: nextIdx, verificationApproverId: nextApproverId, verificationStatus: 'Pending Approval', verificationHistory: updatedHistory };
-                    }
-                    finalStatus = r.submittedResponseStatus || r.responseStatus || 'Completed';
-                    return { ...r, responseStatus: finalStatus, verificationStatus: 'Approved', verificationHistory: updatedHistory };
-                })
-            };
-        }));
-        // Once the verification is complete the new response status is the risk's state on the backend.
-        if (finalStatus) void registers.setRiskResponseStatus(projectId, itemId, finalStatus);
+    /** A risk-response report is decided in the backend's approval workflow, like every other register item. */
+    const verifyRisk = async (projectId: string, riskId: string, approve: boolean, comment?: string) => {
+        const reportId = projects.find(p => p.id === projectId)?.risks?.find(r => r.id === riskId)?.verificationReportId;
+        if (!reportId) return;
+        const outcome = await registers.decide('riskResponse', projectId, reportId, approve, comment);
+        if (!outcome.ok) window.alert(outcome.message || (language === 'fa' ? 'انجام نشد.' : 'The decision could not be recorded.'));
     };
 
     const decideTabItem = async (projectId: string, tabId: string, itemId: string, approve: boolean, comment?: string) => {
@@ -1449,7 +1433,14 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
             if (!outcome.ok) window.alert(outcome.message || (language === 'fa' ? 'انجام نشد.' : 'The decision could not be recorded.'));
             return;
         }
-        if (tabId === 'risk_verification') verifyRisk(projectId, itemId, approve, comment);
+        if (tabId === 'risk_verification') {
+            await verifyRisk(projectId, itemId, approve, comment);
+            return;
+        }
+        if (tabId === 'contracts' || tabId === 'amendments' || tabId === 'invoices') {
+            const outcome = await registers.decideContractItem(projectId, itemId, approve, comment);
+            if (!outcome.ok) window.alert(outcome.message || (language === 'fa' ? 'انجام نشد.' : 'The decision could not be recorded.'));
+        }
     };
 
     const handleApproveTabItem = (projectId: string, tabId: string, itemId: string, comment?: string) =>
@@ -1563,7 +1554,7 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
     // Unified Approval Item Type
     type ApprovalCenterItem = {
         id: string;
-        approvalType: 'project' | 'charter' | 'waterfall' | 'agile' | 'action' | 'risks' | 'stakeholders' | 'status' | 'delays' | 'docs';
+        approvalType: 'project' | 'charter' | 'waterfall' | 'agile' | 'action' | 'risks' | 'stakeholders' | 'status' | 'delays' | 'docs' | 'contracts' | 'amendments' | 'invoices';
         typeLabel: string;
         projectName: string;
         projectId?: string;
@@ -1915,6 +1906,9 @@ export const ApprovalCenterPage = ({ progressUpdates, projects, actions, users, 
                                                     else if (item.rawItem.tabId === 'status') rawObj = (p.statusUpdates || []).find(s => s.id === item.rawItem.itemId);
                                                     else if (item.rawItem.tabId === 'delays') rawObj = (p.delayReasons || []).find(d => d.id === item.rawItem.itemId);
                                                     else if (item.rawItem.tabId === 'docs') rawObj = (p.documents || []).find(d => d.id === item.rawItem.itemId);
+                                                    else if (item.rawItem.tabId === 'contracts') rawObj = (p.contracts || []).find(c => c.id === item.rawItem.itemId);
+                                                    else if (item.rawItem.tabId === 'amendments') rawObj = (p.contracts || []).flatMap(c => c.amendments || []).find(a => a.id === item.rawItem.itemId);
+                                                    else if (item.rawItem.tabId === 'invoices') rawObj = (p.invoices || []).find(i => i.id === item.rawItem.itemId);
                                                 }
                                                 setPendingTabItemHistory({
                                                     title: item.description,

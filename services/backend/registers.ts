@@ -15,7 +15,8 @@ export const SubjectType = {
   delay: 'DelayReason',
   document: 'ProjectDocument',
   activityProgress: 'ActivityProgress',
-  taskStatus: 'AgileTaskStatus'
+  taskStatus: 'AgileTaskStatus',
+  riskResponse: 'RiskResponseStatus'
 } as const;
 export type RegisterKind = keyof typeof SubjectType;
 
@@ -134,6 +135,24 @@ export interface StakeholderBody {
 
 const base = '/api/project-management';
 const forProjects = <T>(path: string, projectIds: string[]) => api.post<T[]>(`${base}/${path}/for-projects`, { projectIds });
+
+export interface BackendRiskResponseReport {
+  id: string;
+  projectId: string;
+  riskId: string;
+  previousStatus: number;
+  submittedStatus: number;
+  comment: string | null;
+  approvalStatus: number;
+  submittedByUserId: string | null;
+  submittedAtUtc: string;
+}
+
+export const riskResponses = {
+  forProjects: (projectIds: string[]) => api.post<BackendRiskResponseReport[]>(`${base}/risks/response-submissions/for-projects`, { projectIds }),
+  submit: (tenantId: string, riskId: string, status: number, comment: string | null) =>
+    api.post<BackendRiskResponseReport>(`${base}/risks/response-submissions`, { tenantId, riskId, status, comment })
+};
 
 export const risks = {
   forProjects: (projectIds: string[]) => forProjects<BackendRisk>('risks', projectIds),

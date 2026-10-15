@@ -67,8 +67,33 @@ export interface VisibilitySettings {
   manageInvoicesPM?: boolean;
 }
 
-export interface ContractAmendment {
-  id: number;
+/** The approval state of a record, as the backend's workflow reports it (nothing about stages or approvers is decided here). */
+export interface ApprovalState {
+  isApproved?: boolean;
+  isRejected?: boolean;
+  isPending?: boolean;
+  currentApproverId?: string;
+  currentStageIndex?: number;
+  approvalHistory?: ProjectApprovalRecord[];
+}
+
+/** Money figures of one contract or of a whole project, worked out by the backend. All in rials. */
+export interface ContractFigures {
+  /** The signed amount plus the approved addenda. */
+  currentAmount: number;
+  invoicedAmount: number;
+  paidAmount: number;
+  remainingCommitment: number;
+  invoicedPercent: number;
+  isOverInvoiced?: boolean;
+  contractCount?: number;
+  /** Project level only: the signed amounts, and the approved addenda, that add up to `currentAmount`. */
+  originalAmount?: number;
+  approvedAddenda?: number;
+}
+
+export interface ContractAmendment extends ApprovalState {
+  id: string;
   amendmentNumber: number; // شماره الحاقیه بصورت خودکار (۱، ۲، ...)
   startDate: string;       // تاریخ شروع الحاقیه
   endDate: string;         // تاریخ پایان الحاقیه
@@ -76,8 +101,8 @@ export interface ContractAmendment {
   description: string;     // شرح الحاقیه
 }
 
-export interface ProjectContract {
-  id: number;
+export interface ProjectContract extends ApprovalState {
+  id: string;
   contractNumber: string;  // شماره قرارداد
   title: string;           // عنوان قرارداد
   startDate: string;       // تاریخ شروع قرارداد
@@ -89,16 +114,17 @@ export interface ProjectContract {
   description?: string;    // شرح / توضیحات قرارداد
   amendments?: ContractAmendment[]; // الحاقیه‌ها (مستر-دیتیل)
   submittedBy?: string;
+  figures?: ContractFigures;
 }
 
-export interface ProjectInvoice {
-  id: number;
+export interface ProjectInvoice extends ApprovalState {
+  id: string;
   invoiceNumber: string;   // شماره صورتحساب
   title: string;           // عنوان صورتحساب
   startDate: string;       // تاریخ شروع دوره صورتحساب
   endDate: string;         // تاریخ پایان دوره صورتحساب
   amount: number;          // مبلغ صورتحساب
-  contractId?: number;     // شناسه قرارداد مربوطه
+  contractId?: string;     // شناسه قرارداد مربوطه
   contractTitle?: string;  // عنوان قرارداد مربوطه (کمبوباکس عنوان قرارداد بر اساس اطلاعات تب قرارداد)
   description?: string;    // شرح یا توضیحات صورتحساب
   submittedBy?: string;
@@ -143,6 +169,8 @@ export interface ProjectRisk {
   verificationApproverId?: string;
   verificationHistory?: ProjectApprovalRecord[];
   verificationComment?: string;
+  /** The backend's report (and its approval) this verification state comes from. */
+  verificationReportId?: string;
 }
 
 export interface RiskLevelThresholdDefinition {
@@ -421,6 +449,8 @@ export interface Project {
   approver1Id?: string | null;
   contracts?: ProjectContract[];
   invoices?: ProjectInvoice[];
+  /** All of the project's contracts added up, by the backend. */
+  contractsSummary?: ContractFigures;
   contractPermissions?: ProjectContractPermissions;
   invoicePermissions?: ProjectInvoicePermissions;
 }
@@ -448,7 +478,7 @@ export interface ActionRecurrence {
 }
 
 export interface ActionItem {
-  id: number;
+  id: string;
   title: string;
   description: string;
   ownerUserId?: string | null; // مالک اقدام (ایجادکننده)
@@ -463,8 +493,8 @@ export interface ActionItem {
   owningUnit: string;
   projectId?: string;
   sourceType?: 'manual' | 'risk' | 'stakeholder';
-  sourceRiskId?: string | number;
-  sourceStakeholderId?: string | number;
+  sourceRiskId?: string;
+  sourceStakeholderId?: string;
   sourceInfo?: {
     type: 'risk' | 'stakeholder';
     projectName?: string;
@@ -512,8 +542,8 @@ export interface ProgressUpdate {
     projectId?: string;
     activityId?: string;
     taskId?: string;
-    actionId?: number;
-    riskId?: number;
+    actionId?: string;
+    riskId?: string;
     submittedBy: string;
     submittedProgress?: number;
     approvedProgress?: number; // درصد پیشرفت تاییدی
@@ -686,7 +716,7 @@ export interface ProjectStrategyAlignment {
 export type KnowledgeDocumentType = 'Book' | 'Pamphlet' | 'Software' | 'Other';
 
 export interface KnowledgeDocument {
-  id: number;
+  id: string;
   name: string;
   description: string;
   type: KnowledgeDocumentType;

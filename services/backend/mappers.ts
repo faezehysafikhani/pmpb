@@ -118,7 +118,9 @@ export const PROJECT_CORE_KEYS: (keyof Project)[] = [
   'risks', 'stakeholders', 'statusUpdates', 'delayReasons', 'documents', 'riskDefinitions', 'riskMatrixColors', 'stakeholderStrategies',
   // the plan (phase 4)
   'schedule', 'kanbanTasks', 'sprintCount', 'weightingType', 'plannedProgressType', 'timeWeightFactor', 'costWeightFactor', 'complexityWeightFactor',
-  'scheduleSnapshots', 'progressFigures', 'scheduleInfo'
+  'scheduleSnapshots', 'progressFigures', 'scheduleInfo',
+  // contracts and invoices (phase 6)
+  'contracts', 'invoices', 'contractsSummary'
 ];
 
 export function toUiProject(
@@ -127,7 +129,8 @@ export function toUiProject(
   memberIds: string[],
   extras: Partial<Project> | undefined,
   registers?: Partial<Project>,
-  planning?: Partial<Project>
+  planning?: Partial<Project>,
+  contractsData?: Partial<Project>
 ): Project {
   // The backend keeps constraints and assumptions apart; the charter screen has one box for both.
   const constraintsAndAssumptions = [project.constraints, project.assumptions].filter(Boolean).join('\n');
@@ -141,6 +144,9 @@ export function toUiProject(
     // Likewise for the plan: whatever an older build kept here is never used.
     schedule: [], kanbanTasks: [], scheduleSnapshots: [], progressFigures: undefined, scheduleInfo: undefined,
     ...(planning ?? {}),
+    // And for contracts and invoices.
+    contracts: [], invoices: [], contractsSummary: undefined,
+    ...(contractsData ?? {}),
     id: project.id,
     type: project.type === BackendProjectType.Agile ? 'agile' : 'waterfall',
     approvalStatus: UI_APPROVAL_BY_BACKEND[project.approvalStatus] ?? 'Draft',

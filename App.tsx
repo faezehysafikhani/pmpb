@@ -1,10 +1,12 @@
 
 
 import React, { useState, useContext, useEffect, useMemo } from 'react';
-import { initialStrategies, initialAlignments, initialKnowledgeDocuments, initialActions, initialDelegations } from './data';
+import { initialDelegations } from './data';
 import { AuthProvider, useAuth } from './directory/AuthContext';
 import { DirectoryProvider, useDirectory } from './directory/DirectoryContext';
 import { ProjectsProvider, useProjects, localPartsOf } from './directory/ProjectsContext';
+import { ActionsProvider, useActions } from './directory/ActionsContext';
+import { StrategyProvider, useStrategy } from './directory/StrategyContext';
 import { projectErrorText } from './services/backend/errors';
 import type { ProjectOutcome } from './directory/ProjectsContext';
 import { toUiUser } from './services/backend/mappers';
@@ -13,7 +15,7 @@ import {
     User, Project, ProjectType, ProjectRisk, ProjectStatusUpdate, ProjectDocument, 
     ProjectActivity, KanbanTask, Calendar, ProjectApprovalStatus, ProjectApprovalRecord, 
     EnrichedProject, ProgressUpdateStatus, ProgressUpdate, EnrichedTask, Strategy, 
-    AlignmentLevel, ProjectStrategyAlignment, SpecificHoliday, TaskPriority, KanbanStatus,
+    AlignmentLevel, ProjectStrategyAlignment, KnowledgeDocumentType, SpecificHoliday, TaskPriority, KanbanStatus,
     UserRole,
     ActionItem,
     WorkStatus,
@@ -26,7 +28,7 @@ import {
     resolveWorkflowApproverId,
     getEffectiveProjectWorkflowStages
 } from './types';
-import { enrichProjectWithProgress, pickCalendar, getISODateString, getISODateTimeString, calculateScheduleTreeAndProgress, isActionVisibleToUser, toPersianDigits, generateRecurringOccurrences } from './utils';
+import { enrichProjectWithProgress, pickCalendar, getISODateString, getISODateTimeString, calculateScheduleTreeAndProgress, isActionVisibleToUser, toPersianDigits } from './utils';
 import { LocalizationProvider, LocalizationContext, ThemeProvider } from './context';
 import { LoginPage, MainMenu, SettingsPage } from './pages/CorePages';
 import { UserManagementPage, TaskCenterPage, ApprovalCenterPage } from './pages/UserAndTaskPages';
@@ -63,49 +65,15 @@ const AppContent = () => {
     const projects = projectsState.projects;
     const setProjects = projectsState.setProjects;
 
-    const [actions, setActions] = useState<ActionItem[]>(() => {
-        try {
-            const saved = localStorage.getItem('pms_actions');
-            if (saved) {
-                const parsed: ActionItem[] = JSON.parse(saved);
-                const existingIds = new Set(parsed.map(a => a.id));
-                const missingInitial = initialActions.filter(a => !existingIds.has(a.id));
-                const merged = [...parsed, ...missingInitial];
-                if (missingInitial.length > 0) {
-                    localStorage.setItem('pms_actions', JSON.stringify(merged));
-                }
-                return merged;
-            }
-            localStorage.setItem('pms_actions', JSON.stringify(initialActions));
-            return initialActions;
-        } catch(e) { 
-            console.error("Failed to parse actions from localStorage", e);
-            localStorage.removeItem('pms_actions');
-            return initialActions; 
-        }
-    });
+    // Actions and the requests to change their status belong to the backend (with their approval).
+    const actionsState = useActions();
+    const actions = actionsState.actions;
 
-    const [strategies, setStrategies] = useState<Strategy[]>(() => {
-        try {
-            const saved = localStorage.getItem('pms_strategies');
-            return saved ? JSON.parse(saved) : initialStrategies;
-        } catch (e) {
-            console.error("Failed to parse strategies from localStorage", e);
-            localStorage.removeItem('pms_strategies');
-            return initialStrategies;
-        }
-    });
-
-    const [alignments, setAlignments] = useState<ProjectStrategyAlignment[]>(() => {
-        try {
-            const saved = localStorage.getItem('pms_alignments');
-            return saved ? JSON.parse(saved) : initialAlignments;
-        } catch (e) {
-            console.error("Failed to parse alignments from localStorage", e);
-            localStorage.removeItem('pms_alignments');
-            return initialAlignments;
-        }
-    });
+    // Strategies, the project-strategy alignment and the knowledge library belong to the backend.
+    const strategyState = useStrategy();
+    const strategies = strategyState.strategies;
+    const alignments = strategyState.alignments;
+    const knowledgeDocuments = strategyState.knowledgeDocuments;
 
     // Progress reports on activities and status requests on agile tasks belong to the backend (with their approval); the ones that are not
     // connected yet (action status, risk response, charter changes) are still kept in this browser.
@@ -113,25 +81,17 @@ const AppContent = () => {
         try {
             const saved = localStorage.getItem('pms_progress_updates');
             const kept: ProgressUpdate[] = saved ? JSON.parse(saved) : [];
-            return kept.filter(up => !up.activityId && !up.taskId).map(up => ({ ...up, id: String(up.id) }));
+            return kept.filter(up => !up.activityId && !up.taskId && !up.actionId).map(up => ({ ...up, id: String(up.id) }));
         } catch (e) {
             console.error("Failed to parse progress updates from localStorage", e);
             localStorage.removeItem('pms_progress_updates');
             return [];
         }
     });
-    const progressUpdates = useMemo(() => [...projectsState.progressUpdates, ...localProgressUpdates], [projectsState.progressUpdates, localProgressUpdates]);
+    const progressUpdates = useMemo(
+        () => [...projectsState.progressUpdates, ...actionsState.updates, ...localProgressUpdates],
+        [projectsState.progressUpdates, actionsState.updates, localProgressUpdates]);
 
-    const [knowledgeDocuments, setKnowledgeDocuments] = useState<KnowledgeDocument[]>(() => {
-        try {
-            const saved = localStorage.getItem('pms_knowledge_docs');
-            return saved ? JSON.parse(saved) : initialKnowledgeDocuments;
-        } catch (e) {
-            console.error("Failed to parse knowledge docs from localStorage", e);
-            localStorage.removeItem('pms_knowledge_docs');
-            return initialKnowledgeDocuments;
-        }
-    });
     
     // The work statuses are the backend's fixed set (it moves a project between them); they are not editable here.
     const projectStatuses: string[] = PROJECT_WORK_STATUSES;
@@ -219,11 +179,7 @@ const AppContent = () => {
     const [approvalCommentModalState, setApprovalCommentModalState] = useState<{ type: 'project' | 'progress', id: number, status: 'Approved' | 'Rejected', initialComment?: string } | null>(null);
 
     // --- DATA PERSISTENCE ---
-    useEffect(() => { localStorage.setItem('pms_actions', JSON.stringify(actions)); }, [actions]);
-    useEffect(() => { localStorage.setItem('pms_strategies', JSON.stringify(strategies)); }, [strategies]);
-    useEffect(() => { localStorage.setItem('pms_alignments', JSON.stringify(alignments)); }, [alignments]);
     useEffect(() => { localStorage.setItem('pms_progress_updates', JSON.stringify(localProgressUpdates)); }, [localProgressUpdates]);
-    useEffect(() => { localStorage.setItem('pms_knowledge_docs', JSON.stringify(knowledgeDocuments)); }, [knowledgeDocuments]);
     useEffect(() => { localStorage.setItem('pms_delegations', JSON.stringify(delegations)); }, [delegations]);
     useEffect(() => { localStorage.setItem('pms_visibility_settings', JSON.stringify(visibilitySettings)); }, [visibilitySettings]);
     useEffect(() => { localStorage.setItem('pms_project_workflow_enabled', String(isProjectWorkflowEnabled)); }, [isProjectWorkflowEnabled]);
@@ -558,39 +514,36 @@ const AppContent = () => {
         }
     };
 
-    const handleDeleteAction = (actionId: number) => {
-        setActions(prev => prev.filter(a => a.id !== actionId));
+    const handleDeleteAction = async (actionId: string) => {
+        const outcome = await actionsState.deleteAction(actionId);
+        if (!outcome.ok) setInfoModal({ title: t('error'), message: actionFailureMessage(outcome) });
     };
-    
-    const handleSaveAction = (actionToSave: ActionItem, context?: any) => {
-        let isNew = false;
-        let finalAction = { ...actionToSave };
 
-        // Generate recurrence instances if recurrence is active
-        const isRecurActive = !!(finalAction.recurrence?.isRecurring || finalAction.recurrence?.enabled);
-        if (isRecurActive && (!finalAction.recurringOccurrences || finalAction.recurringOccurrences.length === 0)) {
-            const occurrences = generateRecurringOccurrences(finalAction);
-            if (occurrences.length > 0) {
-                finalAction.recurringOccurrences = occurrences;
-            }
+    /** The backend's words for an action it refused (for example an end date that is not after the start). */
+    const actionFailureMessage = (outcome: { message?: string; code?: string }) =>
+        outcome.code === 'action.end_not_after_start'
+            ? (language === 'fa' ? 'تاریخ پایان اقدام باید بعد از تاریخ شروع آن باشد.' : 'The action must end after it starts.')
+            : outcome.message || t('error');
+
+    /** An action the AI assistant drafted: the calendar and unit it picked are replaced by ones that exist when they do not. */
+    const handleAssistantAddAction = (drafted: ActionItem) => {
+        const calendar = calendars.find(c => c.id === drafted.calendarId) ?? calendars.find(c => c.isDefault) ?? calendars[0];
+        const unit = directory.unitIdByPath.has(drafted.owningUnit) ? drafted.owningUnit : directory.unitPaths[0] ?? drafted.owningUnit;
+        void handleSaveAction({ ...drafted, id: '', calendarId: calendar?.id ?? drafted.calendarId, owningUnit: unit });
+    };
+
+    const handleSaveAction = async (actionToSave: ActionItem, context?: any) => {
+        const isNew = !actionToSave.id;
+        const outcome = await actionsState.saveAction(actionToSave);
+        if (!outcome.ok) {
+            setInfoModal({ title: t('error'), message: actionFailureMessage(outcome) });
+            return;
         }
 
-        setActions(prev => {
-            const existing = prev.find(a => a.id === finalAction.id);
-            if (existing) {
-                return prev.map(a => a.id === finalAction.id ? finalAction : a);
-            } else {
-                isNew = true;
-                return [...prev, finalAction];
-            }
-        });
+        setInfoModal(isNew
+            ? { title: t('actionSaved'), message: t('actionSavedAndAssigned') }
+            : { title: t('actionSaved'), message: t('actionSaved') });
 
-        if (isNew) {
-            setInfoModal({ title: t('actionSaved'), message: t('actionSavedAndAssigned') });
-        } else {
-            setInfoModal({ title: t('actionSaved'), message: t('actionSaved') });
-        }
-        
         if (context?.fromProject) {
             const projectToReturnTo = projects.find(p => p.id === context.fromProject);
             if (projectToReturnTo) {
@@ -627,94 +580,23 @@ const AppContent = () => {
             : { title: t('error'), message: outcome.message || t('error') });
     };
 
-    const handleAddActionStatusUpdate = (actionId: number, newStatus: WorkStatus, currentStatus: WorkStatus, comment: string) => {
-        const action = actions.find(a => a.id === actionId);
-        if (!action) return;
-
-        const effectiveApproverId = action.approver1Id ?? action.responsibleUserId ?? (users.find(u => u.role === 'Admin')?.id ?? 1);
-
-        const submitterActor = currentUser ? (currentUser.name ? `${currentUser.name} (${currentUser.username})` : currentUser.username) : 'کاربر';
-        const initialRecord: ProjectApprovalRecord = {
-            action: 'Submitted',
-            date: getISODateTimeString(),
-            actor: submitterActor,
-            stageTitle: language === 'fa' ? 'ارسال اولیه' : 'Initial Submission',
-            comment: comment || ''
-        };
-
-        const newUpdate: ProgressUpdate = {
-            id: String(Date.now()),
-            actionId: actionId,
-            submittedBy: currentUser!.id,
-            submittedStatus: newStatus,
-            currentStatus: currentStatus,
-            status: 'Pending Approval',
-            submissionDate: getISODateTimeString(),
-            submissionComment: comment,
-            currentApproverId: effectiveApproverId,
-            currentStageIndex: 0,
-            approvalHistory: [initialRecord]
-        };
-        setProgressUpdates(prev => [...prev, newUpdate]);
-        setInfoModal({ title: t('submitForApproval'), message: t('progressUpdated') });
+    /** Asks for an action to take another status; the backend sends the request for approval (or applies it at once when nothing is configured). */
+    const handleAddActionStatusUpdate = async (actionId: string, newStatus: WorkStatus, _currentStatus: WorkStatus, comment: string) => {
+        const outcome = await actionsState.requestStatus(actionId, newStatus, comment);
+        setInfoModal(outcome.ok
+            ? { title: t('submitForApproval'), message: t('progressUpdated') }
+            : { title: t('error'), message: outcome.message || t('error') });
     };
 
-    const handleUpdateRiskResponseStatus = (projectId: string, riskId: string, status: string, comment?: string) => {
-        setProjects(prev => prev.map(p => {
-            if (p.id !== projectId) return p;
-            const stages = getEffectiveProjectWorkflowStages('risks', p, dynamicWorkflowSettings);
-            const isWorkflowEnabled = stages && stages.length > 0;
-            const firstStage = stages ? stages[0] : undefined;
-            const firstApproverId = firstStage ? resolveWorkflowApproverId(firstStage.approverId, p) : p.projectManagerId;
-
-            return {
-                ...p,
-                risks: (p.risks || []).map(r => {
-                    if (r.id !== riskId) return r;
-                    const actorName = currentUser?.name ? `${currentUser.name} (${currentUser.username})` : currentUser?.username || 'User';
-                    const historyRecord: ProjectApprovalRecord = {
-                        action: 'Submitted',
-                        date: getISODateTimeString(),
-                        actor: actorName,
-                        stageTitle: firstStage ? firstStage.stageTitle : (language === 'fa' ? 'ثبت وضعیت اقدام' : 'Submit Response Status'),
-                        comment: comment || (language === 'fa' ? `تغییر وضعیت به: ${status}` : `Status changed to: ${status}`)
-                    };
-                    const baseHistory = r.verificationHistory || [];
-
-                    if (!isWorkflowEnabled) {
-                        // No verification round: the new response status is the risk's state on the backend straight away.
-                        void projectsState.setRiskResponseStatus(projectId, riskId, status as WorkStatus);
-                        const autoApproveRecord: ProjectApprovalRecord = {
-                            action: 'Approved',
-                            date: getISODateTimeString(),
-                            actor: 'System (No Workflow)',
-                            stageTitle: language === 'fa' ? 'تایید خودکار' : 'Auto Approved',
-                            comment: language === 'fa' ? 'بدون گردش کار، مستقیماً تایید شد' : 'Directly approved without workflow'
-                        };
-                        return {
-                            ...r,
-                            responseStatus: status,
-                            submittedResponseStatus: undefined,
-                            verificationStatus: 'Approved',
-                            verificationHistory: [...baseHistory, historyRecord, autoApproveRecord]
-                        };
-                    }
-
-                    return {
-                        ...r,
-                        submittedResponseStatus: status,
-                        verificationStatus: 'Pending Approval',
-                        verificationStageIndex: 0,
-                        verificationApproverId: firstApproverId,
-                        verificationHistory: [...baseHistory, historyRecord]
-                    };
-                })
-            };
-        }));
-        setInfoModal({ 
-            title: language === 'fa' ? 'ثبت اقدام پاسخ ریسک' : 'Risk Response Action', 
-            message: language === 'fa' ? 'وضعیت اقدام با موفقیت ارسال شد و در انتظار صحه گذاری قرار گرفت.' : 'Response action status submitted successfully and is pending verification.' 
-        });
+    /** The person responsible for a risk's response reports where the work stands; the backend sends it for verification (or applies it at once). */
+    const handleUpdateRiskResponseStatus = async (projectId: string, riskId: string, status: string, comment?: string) => {
+        const outcome = await projectsState.submitRiskResponse(projectId, riskId, status as WorkStatus, comment ?? '');
+        setInfoModal(outcome.ok
+            ? {
+                title: language === 'fa' ? 'ثبت اقدام پاسخ ریسک' : 'Risk Response Action',
+                message: language === 'fa' ? 'وضعیت اقدام با موفقیت ارسال شد.' : 'Response action status submitted successfully.'
+            }
+            : { title: t('error'), message: outcome.message || t('error') });
     };
     
     const handleSaveApprovalComment = (comment: string, statusOverride?: 'Approved' | 'Rejected', options?: { approvedProgress?: number; isPartialRejection?: boolean }) => {
@@ -771,28 +653,19 @@ const AppContent = () => {
                 return;
             }
 
-            const isCharter = !!update.submittedCharter;
-            const isAction = !!update.actionId;
-            const action = isAction ? actions.find(a => a.id === update.actionId) : undefined;
-            const actionApprovers = action
-                ? [action.approver1Id ?? action.responsibleUserId, action.approver2Id, action.approver3Id].filter((aid): aid is number => typeof aid === 'number' && !isNaN(aid) && aid > 0)
-                : [];
-            const actionStages = actionApprovers.map((aid, idx) => {
-                const u = users.find(usr => usr.id === aid);
-                const uName = u ? (u.name || u.username) : '';
-                return {
-                    stageTitle: language === 'fa'
-                        ? `مرحله ${toPersianDigits(idx + 1)}: ${uName || (idx === 0 ? 'تاییدکننده اول (مسئول اقدام)' : `تاییدکننده ${toPersianDigits(idx + 1)}`)}`
-                        : `Stage ${idx + 1}: ${uName || `Approver ${idx + 1}`}`,
-                    approverId: aid
-                };
-            });
+            // A request to change an action's status is decided in the backend's approval workflow, like the ones above.
+            if (update.actionId) {
+                actionsState.decide(update.id, status === 'Approved', comment).then(outcome => setInfoModal(outcome.ok
+                    ? { title: t('updateStatus'), message: t('reviewComplete') }
+                    : { title: t('error'), message: outcome.message || t('error') }));
+                setApprovalCommentModalState(null);
+                return;
+            }
 
+            const isCharter = !!update.submittedCharter;
             const stages = isCharter
                 ? (dynamicWorkflowSettings?.charter || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.charter)
-                : isAction
-                    ? actionStages
-                    : (dynamicWorkflowSettings?.activity_progress || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.activity_progress);
+                : (dynamicWorkflowSettings?.activity_progress || DEFAULT_DYNAMIC_WORKFLOW_SETTINGS.activity_progress);
 
             const currentStageIdx = update.currentStageIndex ?? 0;
             const currentStage = stages ? stages[currentStageIdx] : undefined;
@@ -876,7 +749,7 @@ const AppContent = () => {
                 if (hasNextStage && stages) {
                     const nextStageIdx = currentStageIdx + 1;
                     const nextStage = stages[nextStageIdx];
-                    const nextApproverId = isAction ? (nextStage.approverId as number) : (nextStage ? resolveWorkflowApproverId(nextStage.approverId, project) : (project?.projectManagerId ?? 1));
+                    const nextApproverId = nextStage ? resolveWorkflowApproverId(nextStage.approverId, project) : (project?.projectManagerId ?? 1);
 
                     setProgressUpdates(prev => prev.map(up =>
                         up.id === id ? { 
@@ -957,10 +830,6 @@ const AppContent = () => {
                         }
                         return p;
                     }));
-                } else if (update.actionId) {
-                    setActions(prev => prev.map(a => 
-                        a.id === update.actionId ? { ...a, status: update.submittedStatus as WorkStatus } : a
-                    ));
                 }
                 setInfoModal({ title: t('updateStatus'), message: t('reviewComplete') });
             }
@@ -973,20 +842,38 @@ const AppContent = () => {
 
     const handleDeleteCalendar = (id: string) => directory.deleteCalendar(id);
     
-    const handleSaveStrategies = (strategiesToSave: Strategy[]) => {
-        setStrategies(strategiesToSave);
+    /** The backend refuses a strategy tree whose top-level weights do not add up to 100 (and says so). */
+    const handleSaveStrategies = async (strategiesToSave: Strategy[]) => {
+        const outcome = await strategyState.saveStrategies(strategiesToSave);
+        if (!outcome.ok) {
+            setInfoModal({
+                title: t('error'),
+                message: outcome.code === 'strategy.weights_not_100' ? t('weightError') : outcome.message || t('error')
+            });
+        }
+        return outcome;
     };
 
-    const handleSaveAlignments = (alignmentsToSave: ProjectStrategyAlignment[]) => {
-        setAlignments(alignmentsToSave);
+    const handleSaveAlignments = async (alignmentsToSave: ProjectStrategyAlignment[], projectIds: string[]) => {
+        const outcome = await strategyState.saveAlignments(alignmentsToSave, projectIds);
+        if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
+        return outcome;
     };
-    
-    const handleSaveKnowledgeDoc = (doc: KnowledgeDocument) => {
-        setKnowledgeDocuments(prev => [...prev, doc]);
+
+    const handleSaveKnowledgeDoc = async (file: File, description: string, type: KnowledgeDocumentType) => {
+        const outcome = await strategyState.uploadKnowledge(file, description, type);
+        if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
+        return outcome;
     };
-    
-    const handleDeleteKnowledgeDoc = (id: number) => {
-        setKnowledgeDocuments(prev => prev.filter(d => d.id !== id));
+
+    const handleDeleteKnowledgeDoc = async (id: string) => {
+        const outcome = await strategyState.deleteKnowledge(id);
+        if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
+    };
+
+    const handleDownloadKnowledgeDoc = async (doc: KnowledgeDocument) => {
+        const outcome = await strategyState.downloadKnowledge(doc);
+        if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
     };
     
     /** Hands an activity / agile task to another person: the responsible is a field of the item on the backend. */
@@ -1005,12 +892,18 @@ const AppContent = () => {
         if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
     };
 
+    /** Hands an action to another person: the responsible is a field of the action on the backend. */
+    const reassignAction = async (actionId: string, userId: string) => {
+        const action = actions.find(a => a.id === actionId);
+        if (!action) return;
+        const outcome = await actionsState.saveAction({ ...action, responsibleUserId: userId });
+        if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
+    };
+
     const handleDelegateTask = (type: 'waterfall' | 'agile' | 'action', itemId: string | number, projectId: string | undefined, delegateeId: string) => {
         // 1. Reassign the task
         if (type === 'action') {
-            setActions(prevActions => prevActions.map(action =>
-                action.id === itemId ? { ...action, responsibleUserId: delegateeId } : action
-            ));
+            void reassignAction(itemId as string, delegateeId);
         } else {
             void reassignItem(type, itemId as string, projectId, delegateeId);
         }
@@ -1040,9 +933,7 @@ const AppContent = () => {
     
         // 1. Reassign task back to the delegator of this specific link
         if (type === 'action') {
-             setActions(prevActions => prevActions.map(action =>
-                action.id === itemId ? { ...action, responsibleUserId: delegatorId } : action
-            ));
+            void reassignAction(itemId as string, delegatorId);
         } else {
             void reassignItem(type, itemId as string, projectId, delegatorId);
         }
@@ -1195,7 +1086,7 @@ const AppContent = () => {
             case 'define_strategies':
                 return <DefineStrategiesPage strategies={strategies} onSaveStrategies={handleSaveStrategies} onNavigate={handleNavigate} setInfoModal={setInfoModal} />;
             case 'alignment_matrix':
-                return <AlignmentMatrixPage projects={projects} strategies={strategies} alignments={alignments} onSaveAlignments={handleSaveAlignments} onNavigate={handleNavigate} />;
+                return <AlignmentMatrixPage projects={projects} strategies={strategies} alignments={alignments} percentages={strategyState.alignmentPercentages} onSaveAlignments={handleSaveAlignments} onNavigate={handleNavigate} />;
             case 'color_format':
                 return <ColorFormatPage onNavigate={handleNavigate} />;
             case 'reference_tables':
@@ -1217,7 +1108,7 @@ const AppContent = () => {
             case 'project_dashboard_details':
                 return <ProjectSpecificDashboardPage users={users} calendars={calendars} onNavigate={handleNavigate} progressUpdates={progressUpdates} actions={actions} pageContext={pageContext} currentUser={currentUser} />;
             case 'knowledge_management':
-                return <KnowledgeManagementPage onNavigate={handleNavigate} knowledgeDocuments={knowledgeDocuments} onSave={handleSaveKnowledgeDoc} onDelete={handleDeleteKnowledgeDoc} />;
+                return <KnowledgeManagementPage onNavigate={handleNavigate} knowledgeDocuments={knowledgeDocuments} onSave={handleSaveKnowledgeDoc} onDelete={handleDeleteKnowledgeDoc} onDownload={handleDownloadKnowledgeDoc} />;
             case 'define_action':
                 return <ActionDefinitionPage onNavigate={handleNavigate} onSaveAction={handleSaveAction} users={users} calendars={calendars} projects={projects} existingAction={pageContext?.action} pageContext={pageContext} setInfoModal={setInfoModal} owningUnits={owningUnits} currentUser={currentUser} />;
             case 'view_snapshot':
@@ -1259,7 +1150,7 @@ const AppContent = () => {
                     projectStatuses={projectStatuses}
                     onAddProject={(newProj) => handleSaveProject(newProj, 'sent')}
                     onUpdateProject={handleAssistantProjectUpdate}
-                    onAddAction={(newAct) => handleSaveAction(newAct)}
+                    onAddAction={handleAssistantAddAction}
                     onNavigate={handleNavigate}
                     currentUser={currentUser}
                 />
@@ -1287,7 +1178,11 @@ export const App = () => {
                 <AuthProvider>
                     <DirectoryProvider>
                         <ProjectsProvider>
-                        <AppContent />
+                            <ActionsProvider>
+                                <StrategyProvider>
+                                    <AppContent />
+                                </StrategyProvider>
+                            </ActionsProvider>
                         </ProjectsProvider>
                     </DirectoryProvider>
                 </AuthProvider>

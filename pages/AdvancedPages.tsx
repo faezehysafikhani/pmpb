@@ -755,7 +755,7 @@ export const StrategyManagementHubPage = ({ onNavigate }: { onNavigate: (page: s
 
 export const DefineStrategiesPage = ({ strategies, onSaveStrategies, onNavigate, setInfoModal }: { 
     strategies: Strategy[], 
-    onSaveStrategies: (strategies: Strategy[]) => void, 
+    onSaveStrategies: (strategies: Strategy[]) => Promise<{ ok: boolean }>, 
     onNavigate: (page: string) => void,
     setInfoModal: (modal: { title: string, message: string } | null) => void 
 }): ReactElement => {
@@ -829,13 +829,10 @@ export const DefineStrategiesPage = ({ strategies, onSaveStrategies, onNavigate,
         setLocalStrategies(prev => prev.filter(s => !idsToDelete.has(s.id)));
     };
     
-    const handleSave = () => {
-        if (Math.round(totalWeight) !== 100) {
-            setInfoModal({ title: t('error'), message: t('weightError') });
-            return;
-        }
-        onSaveStrategies(localStrategies);
-        onNavigate('strategy_management');
+    // Whether the weights add up to 100 is the backend's call: it refuses the tree and the App shows its message.
+    const handleSave = async () => {
+        const outcome = await onSaveStrategies(localStrategies);
+        if (outcome.ok) onNavigate('strategy_management');
     };
 
     const renderRow = (strategy: Strategy): ReactElement => (
@@ -907,11 +904,13 @@ export const DefineStrategiesPage = ({ strategies, onSaveStrategies, onNavigate,
     );
 };
 
-export const AlignmentMatrixPage = ({ projects, strategies, alignments, onSaveAlignments, onNavigate }: {
+export const AlignmentMatrixPage = ({ projects, strategies, alignments, percentages, onSaveAlignments, onNavigate }: {
     projects: Project[],
     strategies: Strategy[],
     alignments: ProjectStrategyAlignment[],
-    onSaveAlignments: (alignments: ProjectStrategyAlignment[]) => void,
+    /** Each project's alignment percentage as the backend worked it out. */
+    percentages: Map<string, number>,
+    onSaveAlignments: (alignments: ProjectStrategyAlignment[], projectIds: string[]) => Promise<{ ok: boolean }>,
     onNavigate: (page: string) => void
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
@@ -1007,23 +1006,6 @@ export const AlignmentMatrixPage = ({ projects, strategies, alignments, onSaveAl
         return rows.filter(row => row.length > 0);
     }, [strategyTree, maxDepth, getLeafCount]);
     
-    const calculateAlignmentPercentage = useCallback((projectId: string): number => {
-        const levelWeights: Record<AlignmentLevel, number> = { None: 0, Low: 1, Medium: 2, High: 3 };
-        let totalScore = 0;
-        let maxScore = 0;
-
-        for (const strategy of leafStrategies) {
-            const alignment = localAlignments.find(a => a.projectId === projectId && a.strategyId === strategy.id);
-            const level = alignment?.level || 'None';
-            if (strategy.weight > 0) {
-                totalScore += (levelWeights[level] || 0) * strategy.weight;
-                maxScore += levelWeights['High'] * strategy.weight;
-            }
-        }
-        
-        return maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
-    }, [leafStrategies, localAlignments]);
-
     const projectAlignments = useMemo(() => {
         return projects
             .filter(p => p.approvalStatus === 'Approved')
@@ -1036,10 +1018,10 @@ export const AlignmentMatrixPage = ({ projects, strategies, alignments, onSaveAl
                 return {
                     project,
                     alignmentMap,
-                    alignmentPercentage: calculateAlignmentPercentage(project.id)
+                    alignmentPercentage: percentages.get(project.id) ?? 0
                 };
             });
-    }, [projects, leafStrategies, localAlignments, calculateAlignmentPercentage]);
+    }, [projects, leafStrategies, localAlignments, percentages]);
     
     const alignmentLevels: AlignmentLevel[] = ['None', 'Low', 'Medium', 'High'];
     const levelTranslations: Record<AlignmentLevel, TranslationKey> = {
@@ -1056,9 +1038,17 @@ export const AlignmentMatrixPage = ({ projects, strategies, alignments, onSaveAl
         });
     };
 
-    const handleSave = () => {
-        onSaveAlignments(localAlignments);
-        onNavigate('strategy_management');
+    // The projects whose levels differ from what the backend holds are the ones sent.
+    const handleSave = async () => {
+        const key = (a: ProjectStrategyAlignment) => `${a.projectId}|${a.strategyId}|${a.level}`;
+        const saved = new Set(alignments.map(key));
+        const now = new Set(localAlignments.map(key));
+        const changed = new Set<string>([
+            ...localAlignments.filter(a => !saved.has(key(a))).map(a => a.projectId),
+            ...alignments.filter(a => !now.has(key(a))).map(a => a.projectId)
+        ]);
+        const outcome = changed.size ? await onSaveAlignments(localAlignments, [...changed]) : { ok: true };
+        if (outcome.ok) onNavigate('strategy_management');
     };
 
     return (
@@ -1181,17 +1171,19 @@ export const ColorFormatPage = ({ onNavigate }: { onNavigate: (page: string) => 
     );
 };
 
-export const KnowledgeManagementPage = ({ onNavigate, knowledgeDocuments, onSave, onDelete }: {
+export const KnowledgeManagementPage = ({ onNavigate, knowledgeDocuments, onSave, onDelete, onDownload }: {
     onNavigate: (page: string) => void;
     knowledgeDocuments: KnowledgeDocument[];
-    onSave: (doc: KnowledgeDocument) => void;
-    onDelete: (id: number) => void;
+    onSave: (file: File, description: string, type: KnowledgeDocumentType) => Promise<{ ok: boolean }>;
+    onDelete: (id: string) => void;
+    onDownload: (doc: KnowledgeDocument) => void;
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const backIcon = language === 'fa' ? 'arrow_forward' : 'arrow_back';
 
     const [newDoc, setNewDoc] = useState<Omit<KnowledgeDocument, 'id' | 'name'>>({ description: '', type: 'Book' });
     const [fileName, setFileName] = useState('');
+    const [file, setFile] = useState<File | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -1199,26 +1191,28 @@ export const KnowledgeManagementPage = ({ onNavigate, knowledgeDocuments, onSave
     const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
             setFileName(e.target.files[0].name);
+            setFile(e.target.files[0]);
         }
     };
 
-    const handleSave = (e: FormEvent) => {
+    const handleSave = async (e: FormEvent) => {
         e.preventDefault();
-        if (!fileName || !newDoc.description) {
+        if (!file || !newDoc.description) {
             alert(t('selectFileAndDesc'));
             return;
         }
-        const doc: KnowledgeDocument = { id: Date.now(), name: fileName, ...newDoc };
-        onSave(doc);
+        const outcome = await onSave(file, newDoc.description, newDoc.type);
+        if (!outcome.ok) return;
         setNewDoc({ description: '', type: 'Book' });
         setFileName('');
+        setFile(null);
         setIsAddModalOpen(false);
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
     };
     
-    const handleDelete = (id: number) => {
+    const handleDelete = (id: string) => {
         if(window.confirm(t('confirmDocDelete'))) {
             onDelete(id);
         }
@@ -1335,6 +1329,9 @@ export const KnowledgeManagementPage = ({ onNavigate, knowledgeDocuments, onSave
                                                     React.createElement("td", null, doc.name),
                                                     React.createElement("td", null, doc.description),
                                                     React.createElement("td", { className: "action-cell" },
+                                                        React.createElement("button", { onClick: () => onDownload(doc), className: "action-icon", "aria-label": language === 'fa' ? 'دانلود' : 'Download' } as React.HTMLAttributes<HTMLButtonElement>,
+                                                            React.createElement("span", { className: "material-symbols-outlined" }, "download")
+                                                        ),
                                                         React.createElement("button", { onClick: () => handleDelete(doc.id), className: "action-icon delete", "aria-label": t('delete') } as React.HTMLAttributes<HTMLButtonElement>, 
                                                             React.createElement("span", { className: "material-symbols-outlined" }, "delete")
                                                         )

@@ -64,29 +64,12 @@ export const ActionDefinitionPage = ({ onNavigate, onSaveAction, users, calendar
             return;
         }
 
-        const parseDateDigits = (str?: string) => {
-            if (!str) return 0;
-            return parseInt(str.replace(/[^\d]/g, ''), 10) || 0;
-        };
-        const startVal = parseDateDigits(actionData.startDate);
-        const endVal = parseDateDigits(actionData.endDate);
-
-        if (startVal > 0 && endVal > 0 && endVal <= startVal) {
-            const shamsiStart = formatDate(actionData.startDate, 'fa');
-            const shamsiEnd = formatDate(actionData.endDate, 'fa');
-            setInfoModal({ 
-                title: t('error'), 
-                message: language === 'fa' 
-                    ? `تاریخ پایان اقدام (${shamsiEnd}) باید حتماً بعد از تاریخ شروع اقدام (${shamsiStart}) باشد.`
-                    : `Action end date (${shamsiEnd}) must be strictly after start date (${shamsiStart}).`
-            });
-            return;
-        }
+        // Whether the dates make sense (the end after the start) is the backend's call; it answers with its own message.
 
         const finalActionData: ActionItem = {
-            id: actionData.id || Date.now(),
+            id: actionData.id || '',
             ...actionData,
-            ownerUserId: actionData.ownerUserId || currentUser?.id || 1,
+            ownerUserId: actionData.ownerUserId || currentUser?.id || null,
             approver1Id: actionData.approver1Id || actionData.responsibleUserId || null,
         } as ActionItem;
 

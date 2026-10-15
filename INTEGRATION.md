@@ -37,6 +37,13 @@ Plan and the list of backend additions: `docs/ui-integration/PLAN.md` in the bac
   information, which also feed the S-curve), MS Project import / export and the number of sprints are backend calls too.
   `utils.ts` keeps only presentation helpers: its old CPM / weighting / progress calculation was removed. Agile charts (burn-up / down) are still
   aggregated in the browser from the tasks until the reports phase (8).
+* **Actions, strategy, knowledge, contracts (phases 5 and 6)** - `services/backend/actions.ts`, `actionMappers.ts` and `directory/ActionsContext.tsx` (actions, their
+  status requests and approvals; the old local approver chain and the browser-side occurrence generator are gone), `strategy.ts` and `directory/StrategyContext.tsx`
+  (strategy tree, alignment levels and percentages, knowledge library with real upload / download), `contracts.ts`, `contractMappers.ts`, `contractLoad.ts` and
+  `directory/contractOps.ts` (contracts with addenda, invoices; amounts and totals come from the backend, approvals from Workflow). Risk-response verification
+  (`riskResponses` in `registers.ts`) replaced the browser's second approval round: the report and its approval are the backend's.
+  Where the UI had something the backend lacked it was added there (see the backend log): action source link / approvers / recurrence pattern / status requests,
+  risk-response reports, strategy tree save with the total-100 rule, alignment scores, contract parties, addendum period, invoice title and period.
 * `services/backend/errors.ts` - the words (Persian / English) for the backend's project error codes. The rules themselves live in the backend.
 * `services/backend/runtimeDirectory.ts` - hands the backend-fed unit tree and calendars to plain helper functions that cannot use React context.
 * Ids are strings (the backend's GUIDs).
@@ -53,7 +60,8 @@ Plan and the list of backend additions: `docs/ui-integration/PLAN.md` in the bac
 | Risks (+ response status, matrix colours, level definitions), stakeholders (+ strategy wording), status reports, delay reasons, documents (real upload / download), their approval via the Workflow backend | **connected** (phase 3) |
 | Project statuses list (reference tables page) | the backend's fixed set, shown read-only (a custom status could not be saved) |
 | Schedule (WBS, dependencies, weights, float, planned / actual progress), weighting settings, saved copies, S-curve, MS Project import / export, agile tasks and sprint count, activity progress reports and task status requests (approved through the Workflow backend), project progress figures | **connected** (phase 4) |
-| Actions, contracts, strategy, knowledge, dashboards, reports | still the old local/mock data (phases 5-8) |
+| Actions (+ recurrence pattern, status requests with approval), risk-response verification, strategies, alignment matrix, knowledge library, contracts, addenda, invoices | **connected** (phases 5-6) |
+| Dashboards, reports, visibility switches, workflow stage editor, delegations | still the old local/mock data (phases 7-8) |
 | Approval centre (register items) | decisions go to the backend workflow; delegation, stage editor and the full centre are phase 7 |
 
 Approving a submitted project needs the approval centre (phase 7): until a workflow is defined for projects the backend approves a project as soon as it is sent.

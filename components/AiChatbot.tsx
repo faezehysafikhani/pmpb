@@ -323,7 +323,7 @@ export const AiChatbot: React.FC<AiChatbotProps> = ({
   // Helper to execute Action Item creation
   const executeActionCreation = (actionData: any) => {
     const newAct: ActionItem = {
-      id: Date.now(),
+      id: "",
       title: actionData.title || 'اقدام جدید',
       description: actionData.description || actionData.title || 'اقدام ثبت شده توسط دستیار هوشمند',
       responsibleUserId: actionData.responsibleUserId ? String(actionData.responsibleUserId) : (currentUser?.id || users[0]?.id || 1),

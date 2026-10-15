@@ -279,6 +279,12 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
     const registers = useProjects();
     const fa = language === 'fa';
 
+    // The money figures of a project's contracts (what they are worth, what was invoiced) are read from the backend when one of those tabs opens.
+    useEffect(() => {
+        if ((activeTab === 'contracts' || activeTab === 'invoices') && existingProject?.id) void registers.refreshContracts(existingProject.id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab, existingProject?.id]);
+
     // The page keeps its own copy of the project while it is being edited; the registers are not part of that edit, so they always follow
     // what the backend last returned.
     const liveProject = registers.projects.find(p => p.id === existingProject?.id);
@@ -304,12 +310,16 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
             complexityWeightFactor: liveProject.complexityWeightFactor,
             scheduleSnapshots: liveProject.scheduleSnapshots,
             progressFigures: liveProject.progressFigures,
-            scheduleInfo: liveProject.scheduleInfo
+            scheduleInfo: liveProject.scheduleInfo,
+            contracts: liveProject.contracts,
+            invoices: liveProject.invoices,
+            contractsSummary: liveProject.contractsSummary
         }));
     }, [liveProject?.schedule, liveProject?.kanbanTasks, liveProject?.sprintCount, liveProject?.weightingType, liveProject?.plannedProgressType,
         liveProject?.timeWeightFactor, liveProject?.costWeightFactor, liveProject?.complexityWeightFactor, liveProject?.scheduleSnapshots,
         liveProject?.progressFigures, liveProject?.scheduleInfo, liveProject?.risks, liveProject?.stakeholders, liveProject?.statusUpdates, liveProject?.delayReasons, liveProject?.documents,
-        liveProject?.riskDefinitions, liveProject?.riskMatrixColors, liveProject?.stakeholderStrategies]);
+        liveProject?.riskDefinitions, liveProject?.riskMatrixColors, liveProject?.stakeholderStrategies,
+        liveProject?.contracts, liveProject?.invoices, liveProject?.contractsSummary]);
 
     // The saved copies of the schedule are read when a waterfall project is opened.
     useEffect(() => {
@@ -717,10 +727,20 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                 return React.createElement(ProjectContractsTab, {
                     contracts: projectData.contracts || [],
                     project: projectData as Project,
-                    onUpdateContracts: (newContracts: ProjectContract[]) => {
-                        const updatedProject = { ...projectData, contracts: newContracts } as Project;
-                        setProjectData(updatedProject);
-                        onPartialUpdate(updatedProject);
+                    onSaveContract: async (contract: ProjectContract) => {
+                        const outcome = await registers.saveContract(projectData.id!, contract);
+                        if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
+                        else if (outcome.pendingAddenda) setInfoModal({
+                            title: language === 'fa' ? 'قرارداد' : 'Contract',
+                            message: language === 'fa'
+                                ? 'قرارداد برای تایید ارسال شد. الحاقیه‌ها پس از تایید قرارداد قابل ثبت‌اند.'
+                                : 'The contract was sent for approval. Addenda can be entered once it is approved.'
+                        });
+                        return outcome.ok;
+                    },
+                    onDeleteContract: async (id: string) => {
+                        const outcome = await registers.deleteContract(projectData.id!, id);
+                        if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
                     },
                     isReadOnly: !isPMOrOwnerOrAdmin,
                     currentUser: currentUser,
@@ -744,10 +764,14 @@ export const ProjectDetailsPage = ({ projectType, users, onNavigate, onSaveProje
                     invoices: projectData.invoices || [],
                     contracts: projectData.contracts || [],
                     project: projectData as Project,
-                    onUpdateInvoices: (newInvoices: ProjectInvoice[]) => {
-                        const updatedProject = { ...projectData, invoices: newInvoices } as Project;
-                        setProjectData(updatedProject);
-                        onPartialUpdate(updatedProject);
+                    onSaveInvoice: async (invoice: ProjectInvoice) => {
+                        const outcome = await registers.saveInvoice(projectData.id!, invoice);
+                        if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
+                        return outcome.ok;
+                    },
+                    onDeleteInvoice: async (invoice: ProjectInvoice) => {
+                        const outcome = await registers.deleteInvoice(projectData.id!, invoice);
+                        if (!outcome.ok) setInfoModal({ title: t('error'), message: outcome.message || t('error') });
                     },
                     isReadOnly: !isPMOrOwnerOrAdmin,
                     currentUser: currentUser,
@@ -981,7 +1005,7 @@ export const ProjectPortfolioPage = ({ projects, actions, users, currentUser, on
     owningUnits: string[],
     visibilitySettings?: VisibilitySettings,
     onDeleteProject?: (id: string) => void,
-    onDeleteAction?: (id: number) => void
+    onDeleteAction?: (id: string) => void
 }): ReactElement => {
     const { t, language } = useContext(LocalizationContext);
     const [isFilterOpen, setIsFilterOpen] = useState(false);

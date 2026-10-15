@@ -26,6 +26,13 @@ export function formatAmountInputDisplay(val: number | string | undefined | null
     return isFa ? toPersianDigits(formatted) : formatted;
 }
 
+/** The words for where a record stands in the approval workflow (the backend decides; this only says it). */
+export function approvalBadgeText(state: { isApproved?: boolean; isRejected?: boolean; isPending?: boolean }, isFa: boolean): string | null {
+    if (state.isPending) return isFa ? 'در انتظار تایید' : 'Pending approval';
+    if (state.isRejected) return isFa ? 'رد شده' : 'Rejected';
+    return null;
+}
+
 // Helper to extract clean digit string from formatted input
 export function parseAmountInput(val: string): string {
     return toEnglishDigits(val).replace(/[^0-9]/g, '');
@@ -65,7 +72,7 @@ export const ContractModal = ({
 
     // State for adding / editing an amendment inline
     const [isAddingAmendment, setIsAddingAmendment] = useState(false);
-    const [editingAmendmentId, setEditingAmendmentId] = useState<number | null>(null);
+    const [editingAmendmentId, setEditingAmendmentId] = useState<string | null>(null);
     const [amendmentStartDate, setAmendmentStartDate] = useState('');
     const [amendmentEndDate, setAmendmentEndDate] = useState('');
     const [amendmentAmount, setAmendmentAmount] = useState<number | string>('');
@@ -120,7 +127,7 @@ export const ContractModal = ({
             // Add new with auto-generated amendment number
             const nextNum = getNextAmendmentNumber();
             const newAmendment: ContractAmendment = {
-                id: Date.now(),
+                id: `new-${Date.now()}`, // the backend gives it its own id when the contract is saved
                 amendmentNumber: nextNum,
                 startDate: amendmentStartDate,
                 endDate: amendmentEndDate,
@@ -134,7 +141,7 @@ export const ContractModal = ({
         setEditingAmendmentId(null);
     };
 
-    const handleDeleteAmendment = (id: number) => {
+    const handleDeleteAmendment = (id: string) => {
         if (window.confirm(isFa ? 'آیا از حذف این الحاقیه اطمینان دارید؟' : 'Are you sure you want to delete this amendment?')) {
             setAmendments(prev => prev.filter(a => a.id !== id));
         }
@@ -152,7 +159,7 @@ export const ContractModal = ({
         }
 
         const savedContract: ProjectContract = {
-            id: contract?.id || Date.now(),
+            id: contract?.id || '',
             contractNumber: contractNumber.trim(),
             title: title.trim(),
             startDate,
@@ -163,7 +170,8 @@ export const ContractModal = ({
             beneficiaryName: beneficiaryName.trim(),
             description: description.trim(),
             amendments: amendments,
-            submittedBy: contract?.submittedBy
+            submittedBy: contract?.submittedBy,
+            isRejected: contract?.isRejected
         };
 
         onSave(savedContract);
@@ -564,7 +572,7 @@ export const InvoiceModal = ({
     const [startDate, setStartDate] = useState(invoice?.startDate || '');
     const [endDate, setEndDate] = useState(invoice?.endDate || '');
     const [amount, setAmount] = useState<number | string>(invoice?.amount ?? '');
-    const [contractId, setContractId] = useState<number | ''>(invoice?.contractId ?? (contracts[0]?.id ?? ''));
+    const [contractId, setContractId] = useState<string>(invoice?.contractId ?? (contracts[0]?.id ?? ''));
     const [description, setDescription] = useState(invoice?.description || '');
 
     if (!isOpen) return null;
@@ -579,13 +587,13 @@ export const InvoiceModal = ({
         }
 
         const savedInvoice: ProjectInvoice = {
-            id: invoice?.id || Date.now(),
+            id: invoice?.id || '',
             invoiceNumber: invoiceNumber.trim(),
             title: title.trim(),
             startDate,
             endDate,
             amount: Number(amount) || 0,
-            contractId: contractId ? Number(contractId) : undefined,
+            contractId: contractId || undefined,
             contractTitle: selectedContract ? selectedContract.title : undefined,
             description: description.trim(),
             submittedBy: invoice?.submittedBy
@@ -619,7 +627,7 @@ export const InvoiceModal = ({
                             React.createElement("select", {
                                 id: "invoice-contract",
                                 value: contractId,
-                                onChange: (e) => setContractId(e.target.value ? Number(e.target.value) : ''),
+                                onChange: (e) => setContractId(e.target.value),
                                 className: "form-control",
                                 style: { width: '100%', padding: '0.6rem' }
                             },
@@ -641,7 +649,7 @@ export const InvoiceModal = ({
                                 }
                             },
                                 `${isFa ? 'مبلغ قرارداد انتخاب‌شده:' : 'Selected Contract Total:'} ${formatCurrencyAmount(
-                                    (Number(selectedContract.amount) || 0) + (selectedContract.amendments || []).reduce((s, a) => s + (Number(a.amount) || 0), 0),
+                                    selectedContract.figures?.currentAmount ?? selectedContract.amount,
                                     isFa
                                 )}`
                             )
@@ -748,7 +756,8 @@ export const InvoiceModal = ({
 export const ProjectContractsTab = ({
     contracts = [],
     project,
-    onUpdateContracts,
+    onSaveContract,
+    onDeleteContract,
     isReadOnly = false,
     currentUser,
     isModalOpen: externalIsModalOpen,
@@ -759,7 +768,9 @@ export const ProjectContractsTab = ({
 }: {
     contracts?: ProjectContract[];
     project: Project;
-    onUpdateContracts: (newContracts: ProjectContract[]) => void;
+    /** Saves the contract and its addenda on the backend; resolves with whether it was accepted (the screen shows the backend's refusal). */
+    onSaveContract: (contract: ProjectContract) => Promise<boolean>;
+    onDeleteContract: (id: string) => void;
     isReadOnly?: boolean;
     currentUser?: User | null;
     isModalOpen?: boolean;
@@ -775,7 +786,7 @@ export const ProjectContractsTab = ({
 
     const [internalIsModalOpen, setInternalIsModalOpen] = useState(false);
     const [internalEditingContract, setInternalEditingContract] = useState<ProjectContract | null>(null);
-    const [expandedContractIds, setExpandedContractIds] = useState<Record<number, boolean>>({});
+    const [expandedContractIds, setExpandedContractIds] = useState<Record<string, boolean>>({});
     const [searchTerm, setSearchTerm] = useState('');
 
     const isModalOpen = externalIsModalOpen !== undefined ? externalIsModalOpen : internalIsModalOpen;
@@ -786,7 +797,7 @@ export const ProjectContractsTab = ({
         setInternalIsModalOpen(false);
     };
 
-    const toggleExpand = (contractId: number) => {
+    const toggleExpand = (contractId: string) => {
         setExpandedContractIds(prev => ({
             ...prev,
             [contractId]: !prev[contractId]
@@ -811,21 +822,14 @@ export const ProjectContractsTab = ({
         }
     };
 
-    const handleDelete = (id: number) => {
+    const handleDelete = (id: string) => {
         if (window.confirm(isFa ? 'آیا از حذف این قرارداد و تمامی الحاقیه‌های آن اطمینان دارید؟' : 'Are you sure you want to delete this contract and its amendments?')) {
-            const updated = contracts.filter(c => c.id !== id);
-            onUpdateContracts(updated);
+            onDeleteContract(id);
         }
     };
 
     const handleSaveContract = (savedContract: ProjectContract) => {
-        if (editingContract) {
-            const updated = contracts.map(c => c.id === savedContract.id ? savedContract : c);
-            onUpdateContracts(updated);
-        } else {
-            const updated = [...contracts, savedContract];
-            onUpdateContracts(updated);
-        }
+        void onSaveContract(savedContract);
     };
 
     const filteredContracts = contracts.filter(c => {
@@ -837,12 +841,10 @@ export const ProjectContractsTab = ({
                (c.supervisorName && c.supervisorName.toLowerCase().includes(q));
     });
 
-    // Summary calculations
-    const totalBaseAmount = contracts.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
-    const totalAmendmentsAmount = contracts.reduce((sum, c) => {
-        return sum + (c.amendments || []).reduce((aSum, a) => aSum + (Number(a.amount) || 0), 0);
-    }, 0);
-    const grandTotal = totalBaseAmount + totalAmendmentsAmount;
+    // The totals are the backend's (what counts is what has been approved).
+    const totalBaseAmount = project.contractsSummary?.originalAmount ?? 0;
+    const totalAmendmentsAmount = project.contractsSummary?.approvedAddenda ?? 0;
+    const grandTotal = project.contractsSummary?.currentAmount ?? 0;
 
     return (
         <div className="project-contracts-tab">
@@ -964,8 +966,8 @@ export const ProjectContractsTab = ({
                             filteredContracts.map((c, idx) => {
                                 const cAmendments = c.amendments || [];
                                 const isExpanded = !expandedContractIds[c.id];
-                                const amendSum = cAmendments.reduce((s, a) => s + (Number(a.amount) || 0), 0);
-                                const contractGrand = (Number(c.amount) || 0) + amendSum;
+                                const contractGrand = c.figures?.currentAmount ?? c.amount;
+                                const statusText = approvalBadgeText(c, isFa);
 
                                 return (
                                     <React.Fragment key={c.id}>
@@ -975,7 +977,10 @@ export const ProjectContractsTab = ({
                                         }}>
                                             <td style={{ padding: '0.45rem 0.6rem' }}>{isFa ? toPersianDigits(idx + 1) : (idx + 1)}</td>
                                             <td style={{ fontWeight: 700, color: '#0284c7', padding: '0.45rem 0.6rem' }}>{c.contractNumber}</td>
-                                            <td style={{ fontWeight: 600, padding: '0.45rem 0.6rem' }}>{c.title}</td>
+                                            <td style={{ fontWeight: 600, padding: '0.45rem 0.6rem' }}>
+                                                {c.title}
+                                                {statusText && <span style={{ marginInlineStart: '0.4rem', fontSize: '0.7rem', color: c.isRejected ? '#dc2626' : '#d97706', fontWeight: 500 }}>({statusText})</span>}
+                                            </td>
                                             <td style={{ padding: '0.45rem 0.6rem' }}>{c.contractorName || '-'}</td>
                                             <td style={{ padding: '0.45rem 0.6rem' }}>{c.supervisorName || '-'}</td>
                                             <td style={{ padding: '0.45rem 0.6rem' }}>{c.beneficiaryName || '-'}</td>
@@ -1127,7 +1132,8 @@ export const ProjectInvoicesTab = ({
     invoices = [],
     contracts = [],
     project,
-    onUpdateInvoices,
+    onSaveInvoice,
+    onDeleteInvoice,
     isReadOnly = false,
     currentUser,
     isModalOpen: externalIsModalOpen,
@@ -1139,7 +1145,9 @@ export const ProjectInvoicesTab = ({
     invoices?: ProjectInvoice[];
     contracts?: ProjectContract[];
     project: Project;
-    onUpdateInvoices: (newInvoices: ProjectInvoice[]) => void;
+    /** Saves the invoice on the backend; the screen shows the backend's refusal (for example an amount that does not fit the contract). */
+    onSaveInvoice: (invoice: ProjectInvoice) => Promise<boolean>;
+    onDeleteInvoice: (invoice: ProjectInvoice) => void;
     isReadOnly?: boolean;
     currentUser?: User | null;
     isModalOpen?: boolean;
@@ -1156,7 +1164,7 @@ export const ProjectInvoicesTab = ({
     const [internalIsModalOpen, setInternalIsModalOpen] = useState(false);
     const [internalEditingInvoice, setInternalEditingInvoice] = useState<ProjectInvoice | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [selectedContractFilter, setSelectedContractFilter] = useState<number | 'all'>('all');
+    const [selectedContractFilter, setSelectedContractFilter] = useState<string | 'all'>('all');
 
     const isModalOpen = externalIsModalOpen !== undefined ? externalIsModalOpen : internalIsModalOpen;
     const editingInvoice = externalEditingInvoice !== undefined ? externalEditingInvoice : internalEditingInvoice;
@@ -1184,21 +1192,14 @@ export const ProjectInvoicesTab = ({
         }
     };
 
-    const handleDelete = (id: number) => {
+    const handleDelete = (inv: ProjectInvoice) => {
         if (window.confirm(isFa ? 'آیا از حذف این صورتحساب اطمینان دارید؟' : 'Are you sure you want to delete this invoice?')) {
-            const updated = invoices.filter(inv => inv.id !== id);
-            onUpdateInvoices(updated);
+            onDeleteInvoice(inv);
         }
     };
 
     const handleSaveInvoice = (savedInvoice: ProjectInvoice) => {
-        if (editingInvoice) {
-            const updated = invoices.map(inv => inv.id === savedInvoice.id ? savedInvoice : inv);
-            onUpdateInvoices(updated);
-        } else {
-            const updated = [...invoices, savedInvoice];
-            onUpdateInvoices(updated);
-        }
+        void onSaveInvoice(savedInvoice);
     };
 
     const filteredInvoices = invoices.filter(inv => {
@@ -1211,16 +1212,10 @@ export const ProjectInvoicesTab = ({
                (inv.description && inv.description.toLowerCase().includes(q));
     });
 
-    // Calculations
-    const totalInvoicedAmount = invoices.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
-    const totalContractsGrandAmount = contracts.reduce((sum, c) => {
-        const amend = (c.amendments || []).reduce((aSum, a) => aSum + (Number(a.amount) || 0), 0);
-        return sum + (Number(c.amount) || 0) + amend;
-    }, 0);
-
-    const invoiceCoveragePercent = totalContractsGrandAmount > 0
-        ? Math.min(100, Math.round((totalInvoicedAmount / totalContractsGrandAmount) * 100))
-        : 0;
+    // The figures are the backend's (only approved invoices and addenda count).
+    const totalInvoicedAmount = project.contractsSummary?.invoicedAmount ?? 0;
+    const totalContractsGrandAmount = project.contractsSummary?.currentAmount ?? 0;
+    const invoiceCoveragePercent = Math.min(100, Math.round(project.contractsSummary?.invoicedPercent ?? 0));
 
     return (
         <div className="project-invoices-tab">
@@ -1312,7 +1307,7 @@ export const ProjectInvoicesTab = ({
                 {contracts.length > 0 && (
                     <select
                         value={selectedContractFilter}
-                        onChange={(e) => setSelectedContractFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                        onChange={(e) => setSelectedContractFilter(e.target.value === 'all' ? 'all' : e.target.value)}
                         style={{
                             padding: '0.45rem 0.75rem',
                             fontSize: '0.78rem',
@@ -1361,7 +1356,10 @@ export const ProjectInvoicesTab = ({
                                     <tr key={inv.id}>
                                         <td style={{ padding: '0.45rem 0.6rem' }}>{isFa ? toPersianDigits(idx + 1) : (idx + 1)}</td>
                                         <td style={{ fontWeight: 700, color: '#10b981', padding: '0.45rem 0.6rem' }}>{isFa ? toPersianDigits(inv.invoiceNumber) : inv.invoiceNumber}</td>
-                                        <td style={{ fontWeight: 600, padding: '0.45rem 0.6rem' }}>{inv.title}</td>
+                                        <td style={{ fontWeight: 600, padding: '0.45rem 0.6rem' }}>
+                                            {inv.title}
+                                            {approvalBadgeText(inv, isFa) && <span style={{ marginInlineStart: '0.4rem', fontSize: '0.7rem', color: inv.isRejected ? '#dc2626' : '#d97706', fontWeight: 500 }}>({approvalBadgeText(inv, isFa)})</span>}
+                                        </td>
                                         <td style={{ padding: '0.45rem 0.6rem' }}>
                                             {linkedContract ? (
                                                 <span style={{
@@ -1401,7 +1399,7 @@ export const ProjectInvoicesTab = ({
                                                 {!isReadOnly && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => handleDelete(inv.id)}
+                                                        onClick={() => handleDelete(inv)}
                                                         className="action-icon delete"
                                                         title={isFa ? 'حذف صورتحساب' : 'Delete'}
                                                         style={{ padding: '3px' }}

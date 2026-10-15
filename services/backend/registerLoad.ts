@@ -1,11 +1,11 @@
 import type { Project } from '../../types';
 import { BackendApprovalStatus } from './projects';
 import {
-  approvals, delayReasons, documents, risks, SubjectType, stakeholders, statusUpdates
+  approvals, delayReasons, documents, riskResponses, risks, SubjectType, stakeholders, statusUpdates
 } from './registers';
 import type { BackendInstance } from './registers';
 import {
-  toUiDelayReason, toUiDocument, toUiRisk, toUiRiskSettings, toUiStakeholder, toUiStakeholderStrategies, toUiStatusUpdate
+  toUiDelayReason, toUiDocument, toUiRisk, toUiRiskSettings, toUiRiskVerification, toUiStakeholder, toUiStakeholderStrategies, toUiStatusUpdate
 } from './registerMappers';
 import type { People } from './registerMappers';
 
@@ -39,16 +39,17 @@ export async function loadRegisters(projectIds: string[], people: People): Promi
     if (!result.ok && !error) error = result.error?.message ?? 'Loading failed.';
   };
 
-  const [riskList, stakeholderList, statusList, delayList, documentList, riskSettings, stakeholderSettings] = await Promise.all([
+  const [riskList, stakeholderList, statusList, delayList, documentList, riskSettings, stakeholderSettings, responseReports] = await Promise.all([
     risks.forProjects(projectIds),
     stakeholders.forProjects(projectIds),
     statusUpdates.forProjects(projectIds),
     delayReasons.forProjects(projectIds),
     documents.forProjects(projectIds),
     risks.settings(projectIds),
-    stakeholders.settings(projectIds)
+    stakeholders.settings(projectIds),
+    riskResponses.forProjects(projectIds)
   ]);
-  [riskList, stakeholderList, statusList, delayList, documentList, riskSettings, stakeholderSettings].forEach(note);
+  [riskList, stakeholderList, statusList, delayList, documentList, riskSettings, stakeholderSettings, responseReports].forEach(note);
 
   // Items that were never sent for approval have no history to fetch.
   const sent = <T extends { id: string; approvalStatus: number }>(items: T[] | undefined) =>
@@ -66,16 +67,26 @@ export async function loadRegisters(projectIds: string[], people: People): Promi
     return found;
   };
 
-  const [riskFlow, stakeholderFlow, statusFlow, delayFlow, documentFlow] = await Promise.all([
+  const [riskFlow, stakeholderFlow, statusFlow, delayFlow, documentFlow, responseFlow] = await Promise.all([
     lookup(SubjectType.risk, sent(riskList.value)),
     lookup(SubjectType.stakeholder, sent(stakeholderList.value)),
     lookup(SubjectType.status, sent(statusList.value)),
     lookup(SubjectType.delay, sent(delayList.value)),
-    lookup(SubjectType.document, sent(documentList.value))
+    lookup(SubjectType.document, sent(documentList.value)),
+    lookup(SubjectType.riskResponse, sent(responseReports.value))
   ]);
 
   const of = (projectId: string) => byProject.get(projectId) ?? emptyRegisters();
-  for (const item of riskList.value ?? []) of(item.projectId).risks.push(toUiRisk(item, riskFlow.get(item.id), people));
+  // The newest report of each risk is the state of its response verification (the list comes newest first).
+  const latestReport = new Map<string, NonNullable<typeof responseReports.value>[number]>();
+  for (const report of responseReports.value ?? []) if (!latestReport.has(report.riskId)) latestReport.set(report.riskId, report);
+  for (const item of riskList.value ?? []) {
+    const report = latestReport.get(item.id);
+    of(item.projectId).risks.push({
+      ...toUiRisk(item, riskFlow.get(item.id), people),
+      ...toUiRiskVerification(report, report ? responseFlow.get(report.id) : undefined, people)
+    });
+  }
   for (const item of stakeholderList.value ?? []) of(item.projectId).stakeholders!.push(toUiStakeholder(item, stakeholderFlow.get(item.id), people));
   for (const item of statusList.value ?? []) of(item.projectId).statusUpdates.push(toUiStatusUpdate(item, statusFlow.get(item.id), people));
   for (const item of delayList.value ?? []) of(item.projectId).delayReasons!.push(toUiDelayReason(item, delayFlow.get(item.id), people));
